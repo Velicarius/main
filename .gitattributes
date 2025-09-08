@@ -1,0 +1,19 @@
+# Автоматически нормализовать окончания строк
+* text=auto
+
+# Явные правила для типов файлов
+*.py text eol=lf
+*.sh text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.toml text eol=lf
+
+# Бинарники всегда в исходном виде
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.zip binary
+*.exe binary
