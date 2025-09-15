@@ -1,27 +1,35 @@
-name: ci
+name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [ "main" ]
   pull_request:
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
-      - name: Install uv
-        run: pipx install uv
+          python-version: "3.11"
+
       - name: Install deps
-        working-directory: backend
         run: |
-          uv venv
-          . .venv/bin/activate
-          uv pip install -r requirements.txt
-      - name: Lint & Test
+          python -m pip install -U pip
+          pip install -r requirements.txt
+          if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
+
+      - name: Test env
         run: |
-          backend/.venv/bin/ruff check backend
-          backend/.venv/bin/pytest -q
+          echo "APP_ENV=test" >> $GITHUB_ENV
+          echo "DATABASE_URL=sqlite:///./test.db" >> $GITHUB_ENV
+
+      - name: Run tests
+        run: |
+          python -m pytest -q
