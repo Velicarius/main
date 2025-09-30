@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <title>Portfolio EOD Valuations</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root { --bg:#0f172a;--card:#111827;--muted:#94a3b8;--text:#e5e7eb;--accent:#22c55e;--danger:#ef4444;--border:#1f2937; }
+    html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font:14px/1.5 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial}
+    .wrap{max-width:1000px;margin:24px auto;padding:0 16px}
+    .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px}
+    .row{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end}
+    .title{font-size:20px;font-weight:700;margin:0 0 8px}
+    .muted{color:var(--muted)}
+    .input{width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:#0b1220;color:var(--text)}
+    .btn{display:inline-block;padding:10px 14px;border-radius:10px;background:#1f2937;color:#fff;border:1px solid var(--border);cursor:pointer}
+    .btn[disabled]{opacity:.6;cursor:not-allowed}
+    .btn:hover{filter:brightness(1.1)}
+    table{width:100%;border-collapse:collapse}
+    th,td{text-align:left;padding:10px 8px;border-bottom:1px solid var(--border)}
+    th{color:var(--muted);font-weight:600}
+    .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+    @media (max-width:900px){.grid-2{grid-template-columns:1fr}}
+    .kpi{font-size:28px;font-weight:800}
+    .ok{color:var(--accent)} .err{color:var(--danger)}
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+<div id="topnav"></div>
+<script src="/ui/nav.js"></script>
+<div class="wrap">
+  <h1 style="margin:0 0 12px;">📈 Portfolio EOD Valuations</h1>
+  <p class="muted" style="margin:0 0 16px;">История и последняя EOD-оценка портфеля по <code>user_id</code>.</p>
+
+  <div class="card" style="margin-bottom:16px;">
+    <div class="row">
+      <div style="flex:1 1 360px;">
+        <label class="muted">User ID</label>
+        <input id="userIdInput" class="input" placeholder="UUID пользователя" />
+      </div>
+      <div style="flex:1 1 260px;">
+        <label class="muted">Admin Token (X-Admin-Token)</label>
+        <input id="adminTokenInput" class="input" type="password" placeholder="например: secret" />
+      </div>
+      <div>
+        <button id="loadBtn" class="btn">Загрузить</button>
+      </div>
+      <div>
+        <button id="syncBtn" class="btn">Обновить цены и сохранить</button>
+      </div>
+    </div>
+    <div class="muted" style="margin-top:8px">Можно передать <code>?user_id=&lt;UUID&gt;</code> в URL. Токен хранится в <code>localStorage</code> этого браузера.</div>
+    <div id="status" class="muted" style="margin-top:6px;"></div>
+  </div>
+
+  <div class="grid-2">
+    <div class="card">
+      <div class="title">Последняя оценка</div>
+      <div id="latestBlock" class="muted">Нет данных. Сохраните оценку через кнопку выше.</div>
+    </div>
+    <div class="card">
+      <div class="title">Динамика</div>
+      <canvas id="chart" height="130"></canvas>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:16px;">
+    <div class="title">История оценок</div>
+    <div class="muted" id="metaRow" style="margin-bottom:8px;"></div>
+    <div style="overflow:auto;">
+      <table id="tbl">
+        <thead><tr><th>Дата</th><th>Сумма</th><th>Валюта</th><th>Создано</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = (q)=>document.querySelector(q);
+const fmtUSD = new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:2});
+let chart;
+
+function getParam(name){ const u=new URL(window.location.href); return u.searchParams.get(name)||""; }
+async function fetchJSON(url){ const r=await fetch(url); if(!r.ok) throw new Error(`${r.status} ${r.statusText}`); return r.json(); }
+async function postJSON(url, token){
+  const r = await fetch(url, { method: "POST", headers: token ? { "X-Admin-Token": token } : {} });
+  if(!r.ok){ const t = await r.text(); throw new Error(`${r.status}: ${t}`); }
+  return r.json();
+}
+
+function renderLatest(row){
+  const el=$("#latestBlock");
+  if(!row){ el.innerHTML=`<div class="muted">Нет данных</div>`; return; }
+  el.innerHTML = `
+    <div class="kpi">${fmtUSD.format(Number(row.total_value))}</div>
+    <div class="muted">as of <b>${row.as_of}</b> • ${row.currency}</div>
+  `;
+}
+
+function renderTable(rows){
+  const tb=$("#tbl tbody"); tb.innerHTML="";
+  if(!rows || !rows.length){ tb.innerHTML = `<tr><td colspan="4" class="muted">Нет данных</td></tr>`; $("#metaRow").textContent="Записей: 0"; return; }
+  for(const r of rows){
+    const tr=document.createElement("tr");
+    tr.innerHTML = `
+      <td>${r.as_of}</td>
+      <td>${fmtUSD.format(Number(r.total_value))}</td>
+      <td>${r.currency}</td>
+      <td>${new Date(r.created_at).toLocaleString()}</td>
+    `;
+    tb.appendChild(tr);
+  }
+  $("#metaRow").textContent = `Записей: ${rows.length}`;
+}
+
+function renderChart(rows){
+  const ctx=$("#chart");
+  const labels = rows.map(r=>r.as_of);
+  const data = rows.map(r=>Number(r.total_value));
+  if(chart){ chart.destroy(); }
+  chart = new Chart(ctx,{type:"line",data:{labels,
+    datasets:[{label:"Total Value (USD)", data, tension:0.2, pointRadius:2}]},
+    options:{plugins:{legend:{display:true}}, scales:{x:{ticks:{autoSkip:true,maxTicksLimit:8}}}}
+  });
+}
+
+async function load(){
+  const userId = $("#userIdInput").value.trim();
+  if(!userId){ alert("Введите user_id"); return; }
+  try{
+    const [latest, list] = await Promise.all([
+      fetchJSON(`/portfolio-valuations/${userId}/latest`).catch(()=>null),
+      fetchJSON(`/portfolio-valuations/${userId}`)
+    ]);
+    renderLatest(latest);
+    renderTable(list);
+    renderChart(list);
+  }catch(e){
+    $("#latestBlock").innerHTML = `<div class="err">Ошибка загрузки: ${e.message}</div>`;
+    $("#tbl tbody").innerHTML = `<tr><td colspan="4" class="err">Ошибка загрузки: ${e.message}</td></tr>`;
+  }
+}
+
+async function syncEOD(){
+  const token = $("#adminTokenInput").value.trim();
+  const userId = $("#userIdInput").value.trim();
+  if(!token){ alert("Введите Admin Token"); return; }
+  if(!userId){ alert("Введите user_id"); return; }
+
+  $("#syncBtn").disabled = true;
+  $("#status").textContent = "Обновляем EOD цены из Stooq...";
+  try{
+    const a = await postJSON("/admin/eod/refresh-sync-all", token);
+    $("#status").textContent = `Цены обновлены: ${a.processed} символов. Сохраняем оценки...`;
+    const b = await postJSON("/admin/portfolio/revalue-eod-sync-save", token);
+    $("#status").textContent = `Сохранено записей: ${b.saved}. Обновляю данные...`;
+    await load();
+    $("#status").innerHTML = `<span class="ok">Готово.</span>`;
+  }catch(e){
+    $("#status").innerHTML = `<span class="err">Ошибка: ${e.message}</span>`;
+  }finally{
+    $("#syncBtn").disabled = false;
+  }
+}
+
+// localStorage для токена
+function getStoredToken(){ try{ return localStorage.getItem("adminToken")||""; }catch{ return ""; } }
+function setStoredToken(v){ try{ localStorage.setItem("adminToken", v); }catch{} }
+
+$("#loadBtn").addEventListener("click", load);
+$("#syncBtn").addEventListener("click", syncEOD);
+$("#adminTokenInput").addEventListener("input", (e)=>setStoredToken(e.target.value));
+
+window.addEventListener("DOMContentLoaded", ()=>{
+  renderNav("valuations", { userInputId: "userIdInput" });
+  
+  const uid = getParam("user_id");
+  if(uid){ $("#userIdInput").value = uid; }
+  const tok = getStoredToken();
+  if(tok){ $("#adminTokenInput").value = tok; }
+  if(uid){ load(); }
+});
+</script>
+</body>
+</html>

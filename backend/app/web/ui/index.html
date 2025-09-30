@@ -1,0 +1,72 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>AI Portfolio</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <link rel="stylesheet" href="styles.css?v=1"/>
+  <style>
+    body{color:#eee;background:#111;font-family:Inter,system-ui,Arial}
+    nav ul{display:flex;gap:14px;list-style:none;padding:10px;margin:0;border-bottom:1px solid #333}
+    nav a{color:#ddd;text-decoration:none;padding:6px 10px;border-radius:8px}
+    nav a:hover{background:#222}
+    .topbar{display:flex;gap:8px;align-items:center;padding:10px 12px;border-bottom:1px solid #333}
+    .tbl{width:100%;border-collapse:collapse;margin-top:8px}
+    .tbl th,.tbl td{border-bottom:1px solid #333;padding:8px;text-align:left}
+  </style>
+</head>
+<body>
+  <nav>
+    <ul>
+      <li><a href="#/dashboard/overview">Dashboard</a></li>
+      <li><a href="#/dashboard/positions">Positions</a></li>
+      <li><a href="#/dashboard/insights">AI Insights</a></li>
+      <li><a href="#/analysis/performance">Performance</a></li>
+      <li><a href="#/analysis/risks">Risks</a></li>
+      <li><a href="#/analysis/categories">Categories</a></li>
+      <li><a href="#/settings">Settings</a></li>
+    </ul>
+  </nav>
+
+  <div id="auth" style="margin:10px 0;padding:10px 12px;border-bottom:1px solid #333">
+    <input id="email" type="text" placeholder="Email" style="margin-right:8px;padding:4px 8px;background:#222;color:#eee;border:1px solid #444;border-radius:4px"/>
+    <input id="name" type="text" placeholder="Name (for register)" style="margin-right:8px;padding:4px 8px;background:#222;color:#eee;border:1px solid #444;border-radius:4px"/>
+    <button onclick="register()" style="margin-right:8px;padding:4px 8px;background:#333;color:#eee;border:1px solid #555;border-radius:4px;cursor:pointer">Register</button>
+    <button onclick="login()" style="margin-right:8px;padding:4px 8px;background:#333;color:#eee;border:1px solid #555;border-radius:4px;cursor:pointer">Login</button>
+    <button onclick="logout()" style="margin-right:8px;padding:4px 8px;background:#333;color:#eee;border:1px solid #555;border-radius:4px;cursor:pointer">Logout</button>
+    <span id="authStatus" style="opacity:.8"></span>
+  </div>
+
+  <div id="topbar"></div>
+  <main id="app" style="padding:12px"></main>
+
+  <script src="script.js?v=5"></script>
+  <script>
+  async function register(){
+    const email = document.getElementById('email').value;
+    const name = document.getElementById('name').value;
+    const r = await fetch('/users/register?email='+encodeURIComponent(email)+'&name='+encodeURIComponent(name),
+      {method:'POST', credentials:'include'});
+    const d = await r.json();
+    refreshMe();
+  }
+  async function login(){
+    const email = document.getElementById('email').value;
+    const r = await fetch('/users/login?email='+encodeURIComponent(email),
+      {method:'POST', credentials:'include'});
+    const d = await r.json();
+    refreshMe();
+  }
+  async function logout(){
+    await fetch('/users/logout',{method:'POST',credentials:'include'});
+    refreshMe();
+  }
+  async function refreshMe(){
+    const r = await fetch('/users/me',{credentials:'include'});
+    const d = await r.json();
+    document.getElementById('authStatus').textContent = d.authenticated ? `Logged in as ${d.email}` : "Not logged in";
+  }
+  refreshMe();
+  </script>
+</body>
+</html>

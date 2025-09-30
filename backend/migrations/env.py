@@ -7,25 +7,27 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
-# --- добавить путь к пакету "app" ---
-# migrations/ -> .. (то есть backend/)
+# Add path to "app" package
+# migrations/ -> .. (that is backend/)
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if BASE_DIR not in sys.path:
     sys.path.append(BASE_DIR)
 
-# --- импорт метаданных моделей ---
+# Import metadata and settings
 from app.models import Base  # noqa: E402
+from app.core.config import settings  # noqa: E402
 
 # Alembic Config object, provides access to .ini values
 config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# сказать Alembic, какие метаданные отслеживать
+# Tell Alembic which metadata to track
 target_metadata = Base.metadata
 
 def run_migrations_offline():
-    url = config.get_main_option("sqlalchemy.url")
+    # Use URL from application settings
+    url = settings.database_url
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -37,6 +39,9 @@ def run_migrations_offline():
         context.run_migrations()
 
 def run_migrations_online():
+    # Override URL in config with URL from settings
+    config.set_main_option("sqlalchemy.url", settings.database_url)
+    
     connectable = engine_from_config(
         config.get_section(config.config_ini_section),
         prefix="sqlalchemy.",

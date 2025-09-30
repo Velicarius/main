@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <title>AI Portfolio Assessment</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root{--bg:#0f172a;--card:#111827;--muted:#94a3b8;--text:#e5e7eb;--accent:#22c55e;--warn:#f59e0b;--danger:#ef4444;--border:#1f2937}
+    html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font:14px/1.5 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial}
+    .wrap{max-width:1200px;margin:24px auto;padding:0 16px}
+    .row{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end}
+    .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px}
+    .input{width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:#0b1220;color:var(--text)}
+    .btn{display:inline-block;padding:10px 14px;border-radius:10px;background:#1f2937;color:#fff;border:1px solid var(--border);cursor:pointer}
+    .btn[disabled]{opacity:.6;cursor:not-allowed}
+    .btn:hover{filter:brightness(1.1)}
+    .title{font-size:20px;font-weight:700;margin:0 0 8px}
+    .muted{color:var(--muted)}
+    .kpi{font-size:28px;font-weight:800}
+    .chip{display:inline-block;padding:4px 10px;border-radius:999px;border:1px solid var(--border);background:#0b1220;margin:0 6px 6px 0}
+    .grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px}
+    .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+    @media (max-width:1100px){.grid-3{grid-template-columns:1fr}; .grid-2{grid-template-columns:1fr}}
+    .bar{height:10px;background:#0b1220;border:1px solid var(--border);border-radius:999px;overflow:hidden}
+    .bar > span{display:block;height:100%}
+    .sev-low{color:var(--accent)} .sev-medium{color:var(--warn)} .sev-high{color:var(--danger)}
+    a.link{color:#9dd7ff;text-decoration:none} a.link:hover{text-decoration:underline}
+    table{width:100%;border-collapse:collapse}
+    th,td{text-align:left;padding:10px 8px;border-bottom:1px solid var(--border)}
+    th{color:var(--muted);font-weight:600}
+  </style>
+</head>
+<body>
+<div id="topnav"></div>
+<script src="/ui/nav.js"></script>
+<div class="wrap">
+  <h1 style="margin:0 0 12px;">🤖 AI Portfolio Assessment</h1>
+  <p class="muted" style="margin:0 0 16px;">Коротко, профессионально и по делу: оценка, категории, риски, инсайты и шаги.</p>
+
+  <div class="card" style="margin-bottom:16px;">
+    <div class="row">
+      <div style="flex:1 1 360px;">
+        <label class="muted">User ID</label>
+        <input id="userId" class="input" placeholder="UUID пользователя" />
+      </div>
+      <div style="flex:1 1 220px;">
+        <label class="muted">Model</label>
+        <select id="model" class="input">
+          <option value="gpt-4o-mini">gpt-4o-mini</option>
+          <option value="gpt-4o">gpt-4o</option>
+        </select>
+      </div>
+      <div style="flex:1 1 160px;">
+        <label class="muted">Язык</label>
+        <select id="lang" class="input">
+          <option value="ru" selected>ru</option>
+          <option value="en">en</option>
+        </select>
+      </div>
+      <div><button id="runBtn" class="btn">Оценить портфель</button></div>
+      <div class="row" style="gap:8px;">
+        <a id="toEditor" class="link" href="#" target="_blank">Редактор</a>
+        <a id="toVal" class="link" href="#" target="_blank">Оценки (EOD)</a>
+        <a id="toSnap" class="link" href="#" target="_blank">Снапшот</a>
+      </div>
+    </div>
+    <div id="status" class="muted" style="margin-top:6px;"></div>
+  </div>
+
+  <div class="grid-3" style="margin-bottom:16px;">
+    <div class="card">
+      <div class="title">Оценка</div>
+      <div class="kpi" id="kpi">—</div>
+      <div class="muted" id="headline" style="margin-top:4px;">—</div>
+      <div id="tags" style="margin-top:8px;"></div>
+    </div>
+    <div class="card">
+      <div class="title">Перфоманс (с момента покупки)</div>
+      <div class="kpi" id="perfKpi">—</div>
+      <div class="muted" id="perfSub">—</div>
+    </div>
+    <div class="card">
+      <div class="title">Сводка</div>
+      <div id="summary" class="muted">—</div>
+    </div>
+  </div>
+
+  <div class="grid-2" style="margin-bottom:16px;">
+    <div class="card">
+      <div class="title">Категории</div>
+      <div id="cats"></div>
+    </div>
+    <div class="card">
+      <div class="title">Риски</div>
+      <div id="risks"></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:16px;">
+    <div class="title">Инсайты</div>
+    <div id="insights"></div>
+  </div>
+
+  <div class="card">
+    <div class="title">Шаги</div>
+    <div style="overflow:auto;">
+      <table>
+        <thead><tr><th>#</th><th>Действие</th><th>Обоснование</th><th>Ожидаемый эффект</th><th>Приоритет</th></tr></thead>
+        <tbody id="actBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+const $=(q)=>document.querySelector(q);
+
+function getParam(name){ const u=new URL(location.href); return u.searchParams.get(name)||""; }
+function pct(n){ if(n==null) return "—"; return (Number(n)).toFixed(1)+"%"; }
+
+function chip(text){ const s=document.createElement("span"); s.className="chip"; s.textContent=text; return s; }
+function bar(score){ const wrap=document.createElement("div"); wrap.className="bar"; const fill=document.createElement("span"); const w=Math.max(0,Math.min(10,Number(score||0)))*10; fill.style.width=w+"%"; fill.style.background = w>=70?"#22c55e":(w>=40?"#f59e0b":"#ef4444"); wrap.appendChild(fill); return wrap; }
+
+async function assess(){
+  const uid=$("#userId").value.trim();
+  const mdl=$("#model").value;
+  const lang=$("#lang").value;
+  if(!uid){ alert("Введите User ID"); return; }
+  $("#runBtn").disabled=true; $("#status").textContent="Собираю данные и зову модель...";
+
+  try{
+    const r = await fetch(`/ai/portfolio/assess?user_id=${encodeURIComponent(uid)}&model=${encodeURIComponent(mdl)}&language=${encodeURIComponent(lang)}`, { method:"POST" });
+    const data = await r.json();
+    if(!r.ok) throw new Error(typeof data==="string"?data:(data.detail||JSON.stringify(data)));
+
+    const ai = data.ai || {};
+    // Оценка + шапка
+    const score = ai.rating?.score; const label = ai.rating?.label ?? "—";
+    $("#kpi").textContent = (score!=null) ? `${Number(score).toFixed(1)} / 10 • ${label}` : "—";
+    $("#headline").textContent = ai.overview?.headline || "—";
+    $("#tags").innerHTML = ""; (ai.overview?.tags||[]).forEach(t=>$("#tags").appendChild(chip(t)));
+
+    // Перфоманс
+    const perfPct = ai.performance?.since_buy_pl_pct;
+    $("#perfKpi").textContent = (perfPct!=null) ? pct(perfPct) : "—";
+    $("#perfSub").textContent = ai.performance?.comment || "";
+
+    // Сводка (короткий markdown — выводим как текст)
+    $("#summary").textContent = ai.summary_markdown || "—";
+
+    // Категории
+    const cats = ai.categories || [];
+    const cwrap = $("#cats"); cwrap.innerHTML="";
+    cats.forEach(c=>{
+      const row=document.createElement("div");
+      row.style.marginBottom = "10px";
+      const name=document.createElement("div"); name.textContent = `${c.name ?? "—"}  •  ${(c.score??0).toFixed(1)}/10`; name.style.marginBottom="4px";
+      const barEl = bar(c.score);
+      const note=document.createElement("div"); note.className="muted"; note.textContent = c.note || "";
+      row.appendChild(name); row.appendChild(barEl); row.appendChild(note);
+      cwrap.appendChild(row);
+    });
+
+    // Риски
+    const risks = ai.risks || [];
+    const rwrap = $("#risks"); rwrap.innerHTML="";
+    risks.forEach(r=>{
+      const div=document.createElement("div"); div.style.marginBottom="10px";
+      const sev = (r.severity||"low").toLowerCase();
+      const sevCls = sev==="high"?"sev-high":(sev==="medium"?"sev-medium":"sev-low");
+      div.innerHTML = `<div><b class="${sevCls}">● ${sev.toUpperCase()}</b> — ${r.item||"—"}</div><div class="muted">${r.mitigation||""}</div>`;
+      rwrap.appendChild(div);
+    });
+
+    // Инсайты — one-liners
+    const insights = ai.insights || [];
+    const ichips = $("#insights"); ichips.innerHTML="";
+    insights.forEach(s=>ichips.appendChild(chip(s)));
+
+    // План действий
+    const tb=$("#actBody"); tb.innerHTML="";
+    (ai.actions||[]).forEach((a,i)=>{
+      const tr=document.createElement("tr");
+      tr.innerHTML = `<td>${i+1}</td><td>${a.title||""}</td><td>${a.rationale||""}</td><td>${a.expected_impact||""}</td><td>${a.priority??""}</td>`;
+      tb.appendChild(tr);
+    });
+
+    $("#status").textContent = "Готово.";
+  }catch(e){
+    $("#status").textContent = "Ошибка: "+e.message;
+  }finally{
+    $("#runBtn").disabled=false;
+  }
+}
+
+document.getElementById("runBtn").addEventListener("click", assess);
+
+window.addEventListener("DOMContentLoaded", ()=>{
+  renderNav("ai", { userInputId: "userId" });
+  
+  const uid=getParam("user_id"); if(uid){ $("#userId").value=uid; }
+  const setLinks=()=>{
+    const id=$("#userId").value.trim();
+    $("#toEditor").href = `/ui/portfolio_editor.html?user_id=${encodeURIComponent(id)}`;
+    $("#toVal").href    = `/ui/valuations.html?user_id=${encodeURIComponent(id)}`;
+    $("#toSnap").href   = `/ui/portfolio_snapshot.html?user_id=${encodeURIComponent(id)}`;
+  };
+  $("#userId").addEventListener("input", setLinks);
+  setLinks();
+});
+</script>
+</body>
+</html>

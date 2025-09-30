@@ -18,8 +18,40 @@ cp .env.example .env
 # 2) Start services (API, Postgres, Qdrant, Redis, Worker, Flower)
 docker compose -f infra/docker-compose.yml up --build
 
-# 3) Open http://localhost:8000/docs for API
+# 3) Open http://localhost:8002/docs for API
 #    Flower: http://localhost:5555
+```
+
+## Локальная разработка
+
+Для разработки рекомендуется запускать только инфраструктурные сервисы в Docker, а API локально:
+
+```bash
+# 1) Поднять только сервисы БД/Redis/Qdrant
+docker compose -f infra/docker-compose.yml up -d postgres redis qdrant
+
+# 2) Запуск локального API
+cd backend
+.\.venv\Scripts\Activate.ps1
+uvicorn app.main:app --reload --host 127.0.0.1 --port 8001
+```
+
+- **Swagger UI**: http://127.0.0.1:8001/docs
+- **OpenAPI JSON**: http://127.0.0.1:8001/openapi.json
+
+## Миграции
+
+### Применение миграций
+```powershell
+cd backend
+.\.venv\Scripts\Activate.ps1
+$env:PYTHONUTF8=1
+alembic -c alembic.ini upgrade head
+```
+
+### Создание новой миграции
+```powershell
+alembic -c alembic.ini revision --autogenerate -m "описание изменений"
 ```
 
 ## Structure

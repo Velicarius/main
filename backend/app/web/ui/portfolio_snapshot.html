@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <title>Portfolio Snapshot</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root{--bg:#0f172a;--card:#111827;--muted:#94a3b8;--text:#e5e7eb;--accent:#22c55e;--danger:#ef4444;--border:#1f2937}
+    html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font:14px/1.5 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial}
+    .wrap{max-width:1200px;margin:24px auto;padding:0 16px}
+    .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px}
+    .row{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end}
+    .input{width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:#0b1220;color:var(--text)}
+    .btn{display:inline-block;padding:10px 14px;border-radius:10px;background:#1f2937;color:#fff;border:1px solid var(--border);cursor:pointer}
+    .btn[disabled]{opacity:.6;cursor:not-allowed}
+    .btn:hover{filter:brightness(1.1)}
+    .title{font-size:20px;font-weight:700;margin:0 0 8px}
+    .muted{color:var(--muted)}
+    table{width:100%;border-collapse:collapse}
+    th,td{text-align:left;padding:10px 8px;border-bottom:1px solid var(--border)}
+    th{color:var(--muted);font-weight:600}
+    .grid-2{display:grid;grid-template-columns:1.4fr .6fr;gap:16px}
+    @media (max-width:1100px){.grid-2{grid-template-columns:1fr}}
+    .kpi{font-size:28px;font-weight:800}
+    .good{color:var(--accent)} .bad{color:var(--danger)}
+    a.link{color:#9dd7ff;text-decoration:none} a.link:hover{text-decoration:underline}
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+<div id="topnav"></div>
+<script src="/ui/nav.js"></script>
+<div class="wrap">
+  <h1 style="margin:0 0 12px;">📊 Portfolio Snapshot</h1>
+  <p class="muted" style="margin:0 0 16px;">Показывает стоимость, веса и нереализованную доходность по последним EOD-ценам.</p>
+
+  <div class="card" style="margin-bottom:16px;">
+    <div class="row">
+      <div style="flex:1 1 360px;">
+        <label class="muted">User ID</label>
+        <input id="userId" class="input" placeholder="UUID пользователя" />
+      </div>
+      <div class="row" style="gap:8px;">
+        <button id="loadBtn" class="btn">Загрузить</button>
+        <a id="toEditor" class="link" href="#" target="_blank">Редактор портфеля</a>
+        <a id="toVal" class="link" href="#" target="_blank">Оценки (UI)</a>
+      </div>
+    </div>
+    <div id="status" class="muted" style="margin-top:6px;"></div>
+  </div>
+
+  <div class="grid-2">
+    <div class="card">
+      <div class="title">Позиции</div>
+      <div style="overflow:auto;">
+        <table id="tbl">
+          <thead>
+            <tr>
+              <th>Тикер</th><th>Кол-во</th><th>Цена (EOD)</th>
+              <th>Стоимость</th><th>Себестоимость</th><th>P/L</th><th>P/L %</th><th>Вес</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+          <tfoot>
+            <tr>
+              <th colspan="3" style="text-align:right;">Итого:</th>
+              <th id="tTotal">$0</th>
+              <th id="tCost">$0</th>
+              <th id="tPL">$0</th>
+              <th id="tPLp">0%</th>
+              <th></th>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+    <div class="card">
+      <div class="title">Структура портфеля</div>
+      <div class="kpi" id="kpi">$0</div>
+      <div class="muted" id="asOf" style="margin-bottom:8px;"></div>
+      <canvas id="pie" height="180"></canvas>
+    </div>
+  </div>
+</div>
+
+<script>
+const $=(q)=>document.querySelector(q);
+const fmtUSD = new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:2});
+
+let pie;
+
+function getParam(name){ const u=new URL(location.href); return u.searchParams.get(name)||""; }
+async function fetchJSON(u){ const r=await fetch(u); if(!r.ok) throw new Error(`${r.status} ${await r.text()}`); return r.json(); }
+
+async function listPositions(uid){
+  // пробуем серверную фильтрацию
+  try{ return await fetchJSON(`/positions?user_id=${encodeURIComponent(uid)}`); }
+  catch{ /* fallback ниже */ }
+  const all = await fetchJSON(`/positions`);
+  return all.filter(r => String(r.user_id).toLowerCase() === uid.toLowerCase());
+}
+
+async function latestPrice(sym){
+  // API уже имеет фоллбек на .us; просто зовём
+  try{ return await fetchJSON(`/prices-eod/${encodeURIComponent(sym)}/latest`); }
+  catch{ return null; }
+}
+
+function renderTable(rows){
+  const tb=$("#tbl tbody"); tb.innerHTML="";
+  if(!rows.length){ tb.innerHTML=`<tr><td colspan="8" class="muted">Нет позиций</td></tr>`; return {total:0,cost:0,pl:0,asOf:null}; }
+
+  const totals={ total:0, cost:0, pl:0, asOf:null };
+  for(const r of rows){
+    const tr=document.createElement("tr");
+    const weight = rows.totalValue>0 ? (r.value/rows.totalValue*100) : 0;
+    tr.innerHTML = `
+      <td>${r.symbol}</td>
+      <td>${Number(r.qty).toLocaleString("en-US",{maximumFractionDigits:8})}</td>
+      <td>${fmtUSD.format(r.close)}</td>
+      <td>${fmtUSD.format(r.value)}</td>
+      <td>${r.cost!=null?fmtUSD.format(r.cost):""}</td>
+      <td class="${r.pl>=0?'good':'bad'}">${fmtUSD.format(r.pl)}</td>
+      <td class="${r.pl>=0?'good':'bad'}">${(r.plp).toFixed(2)}%</td>
+      <td>${weight.toFixed(1)}%</td>
+    `;
+    tb.appendChild(tr);
+    totals.total += r.value;
+    totals.cost  += (r.cost??0);
+    totals.pl    += r.pl;
+    totals.asOf  = r.as_of || totals.asOf;
+  }
+  $("#tTotal").textContent = fmtUSD.format(totals.total);
+  $("#tCost").textContent  = fmtUSD.format(totals.cost);
+  $("#tPL").textContent    = fmtUSD.format(totals.pl);
+  $("#tPLp").textContent   = totals.cost>0 ? ((totals.pl/totals.cost)*100).toFixed(2)+"%" : "—";
+  return totals;
+}
+
+function renderPie(rows,total){
+  const ctx=$("#pie");
+  const labels = rows.map(r=>r.symbol.toUpperCase());
+  const data   = rows.map(r=>r.value);
+  if(pie) pie.destroy();
+  pie = new Chart(ctx,{type:"pie",data:{labels,datasets:[{data}]},options:{plugins:{legend:{position:"bottom"}}}});
+}
+
+async function load(){
+  const uid=$("#userId").value.trim();
+  if(!uid){ alert("Введите User ID"); return; }
+  $("#status").textContent="Загружаю позиции...";
+  const pos = await listPositions(uid);
+
+  $("#status").textContent="Тяну последние EOD-цены...";
+  const uniq = [...new Set(pos.map(p=>String(p.symbol).trim().toLowerCase()))];
+  const priceMap = {};
+  await Promise.all(uniq.map(async s=>{
+    const p = await latestPrice(s);
+    if(p) priceMap[s]=p;
+  }));
+
+  const rows = pos.map(p=>{
+    const sym = String(p.symbol).trim().toLowerCase();
+    const qty = Number(p.quantity);
+    const px  = priceMap[sym]?.close ?? 0;
+    const asOf= priceMap[sym]?.date ?? null;
+    const val = qty * px;
+    const cost = p.buy_price!=null ? Number(p.buy_price)*qty : null;
+    const pl = cost!=null ? (val - cost) : 0;
+    const plp = cost>0 ? (pl/cost*100) : 0;
+    return { symbol: sym, qty, close: px, value: val, cost, pl, plp, as_of: asOf };
+  });
+
+  // для расчёта весов
+  rows.totalValue = rows.reduce((a,x)=>a+x.value,0);
+
+  const totals = renderTable(rows);
+  $("#kpi").textContent = fmtUSD.format(totals.total);
+  $("#asOf").textContent = totals.asOf ? `as of ${totals.asOf}` : "";
+  renderPie(rows, totals.total);
+
+  $("#status").textContent = `Позиции: ${pos.length}, котировки: ${Object.keys(priceMap).length}`;
+}
+
+document.getElementById("loadBtn").addEventListener("click", load);
+
+function getParam(name){ const u=new URL(location.href); return u.searchParams.get(name)||""; }
+window.addEventListener("DOMContentLoaded", ()=>{
+  renderNav("snapshot", { userInputId: "userId" });
+  
+  const uid = getParam("user_id");
+  if(uid){ $("#userId").value = uid; }
+  const setLinks = ()=> {
+    const id = $("#userId").value.trim();
+    $("#toEditor").href = `/ui/portfolio_editor.html?user_id=${encodeURIComponent(id)}`;
+    $("#toVal").href    = `/ui/valuations.html?user_id=${encodeURIComponent(id)}`;
+  };
+  $("#userId").addEventListener("input", setLinks);
+  setLinks();
+  if(uid){ load().catch(e=>$("#status").textContent=`Ошибка: ${e.message}`); }
+});
+</script>
+</body>
+</html>

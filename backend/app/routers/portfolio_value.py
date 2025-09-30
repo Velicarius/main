@@ -3,8 +3,9 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 from datetime import datetime
-from ..database import get_db
-from ..models import Position, Price
+from app.database import get_db
+from app.models.position import Position
+from app.models.price import Price
 from uuid import UUID
 from decimal import Decimal, ROUND_HALF_UP
 
@@ -39,7 +40,7 @@ def portfolio_value(
         select(
             Position.symbol,
             Position.quantity,
-            Position.price.label("buy_price"),
+            Position.buy_price.label("buy_price"),
             price_latest.c.close.label("mkt_price"),
         )
         .join(

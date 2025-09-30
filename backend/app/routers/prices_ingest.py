@@ -2,8 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy import text
-from ..database import get_db
-from ..models import Price
+from app.database import get_db
+from app.models.price import Price
 import csv
 from pathlib import Path
 from datetime import datetime

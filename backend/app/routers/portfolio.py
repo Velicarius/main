@@ -2,8 +2,8 @@ from fastapi import APIRouter
 from pydantic import BaseModel, Field
 from typing import List, Optional
 import pandas as pd
-from ..services.features import basic_portfolio_metrics
-from ..services.ai import generate_insights
+from app.services.features import basic_portfolio_metrics
+from app.services.ai import generate_insights
 
 router = APIRouter(prefix="/portfolio", tags=["portfolio"])
 

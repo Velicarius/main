@@ -1,0 +1,13 @@
+version: "3.9"
+services:
+  api:
+    environment:
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      - PUBLIC_BASE_URL=${PUBLIC_BASE_URL:-http://localhost:8001}
+      - SESSION_SECRET=${SESSION_SECRET:-dev-secret-change-me}
+    volumes:
+      - ../backend/app/web/ui:/app/backend/app/web/ui
+
+
+

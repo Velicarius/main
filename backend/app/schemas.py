@@ -1,7 +1,7 @@
 from pydantic import BaseModel, constr, condecimal
 from typing import Optional, List
 from decimal import Decimal
-from datetime import date
+from datetime import date, datetime
 from uuid import UUID
 
 
@@ -22,6 +22,25 @@ class PositionCreate(BaseModel):
                 "buy_date": "2024-01-15",
                 "currency": "USD",
                 "account": "main"
+            }
+        }
+
+
+class SellPositionRequest(BaseModel):
+    position_id: UUID
+    quantity: condecimal(gt=0)
+    sell_price: Optional[condecimal(gt=0)] = None
+    sell_date: Optional[date] = None
+    currency: Optional[str] = "USD"
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "position_id": "123e4567-e89b-12d3-a456-426614174000",
+                "quantity": "5.0",
+                "sell_price": "160.00",
+                "sell_date": "2024-01-20",
+                "currency": "USD"
             }
         }
 
@@ -84,3 +103,49 @@ class BulkPositionResult(BaseModel):
                 "errors": ["Invalid symbol: empty string"]
             }
         }
+# --- PriceEOD schemas ---
+
+class PriceEODCreate(BaseModel):
+    date: date
+    open: Optional[float] = None
+    high: Optional[float] = None
+    low: Optional[float] = None
+    close: float
+    volume: Optional[float] = None
+    source: Optional[str] = None
+
+
+class PriceEODUpdate(BaseModel):
+    open: Optional[float] = None
+    high: Optional[float] = None
+    low: Optional[float] = None
+    close: Optional[float] = None
+    volume: Optional[float] = None
+    source: Optional[str] = None
+
+
+class PriceEODResponse(BaseModel):
+    id: UUID
+    symbol: str
+    date: date
+    open: Optional[float] = None
+    high: Optional[float] = None
+    low: Optional[float] = None
+    close: float
+    volume: Optional[float] = None
+    source: Optional[str] = None
+    ingested_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class PortfolioValuationEODOut(BaseModel):
+    id: UUID
+    user_id: UUID
+    as_of: date
+    total_value: Decimal
+    currency: str
+    created_at: datetime
+    class Config:
+        from_attributes = True

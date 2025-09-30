@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <title>Portfolio Editor</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root{--bg:#0f172a;--card:#111827;--muted:#94a3b8;--text:#e5e7eb;--accent:#22c55e;--danger:#ef4444;--border:#1f2937}
+    html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font:14px/1.5 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial}
+    .wrap{max-width:1100px;margin:24px auto;padding:0 16px}
+    .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px}
+    .row{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end}
+    .input{width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:#0b1220;color:var(--text)}
+    .btn{display:inline-block;padding:10px 14px;border-radius:10px;background:#1f2937;color:#fff;border:1px solid var(--border);cursor:pointer}
+    .btn[disabled]{opacity:.6;cursor:not-allowed}
+    .btn:hover{filter:brightness(1.1)}
+    .title{font-size:20px;font-weight:700;margin:0 0 8px}
+    .muted{color:var(--muted)}
+    table{width:100%;border-collapse:collapse}
+    th,td{text-align:left;padding:10px 8px;border-bottom:1px solid var(--border)}
+    th{color:var(--muted);font-weight:600}
+    .chip{display:inline-block;padding:2px 8px;border-radius:12px;border:1px solid var(--border);background:#0b1220;margin:0 6px 6px 0}
+    .right{display:flex;gap:10px;align-items:center}
+    a.link{color:#9dd7ff;text-decoration:none}
+    a.link:hover{text-decoration:underline}
+  </style>
+</head>
+<body>
+<div id="topnav"></div>
+<script src="/ui/nav.js"></script>
+<div class="wrap">
+  <h1 style="margin:0 0 12px;">🧺 Portfolio Editor</h1>
+  <p class="muted" style="margin:0 0 16px;">Выбирайте тикеры, указывайте количество и сохраняйте пачкой через существующие эндпоинты <code>/positions</code> и <code>/positions/bulk_json</code>.</p>
+
+  <div class="card" style="margin-bottom:16px;">
+    <div class="row">
+      <div style="flex:1 1 360px;">
+        <label class="muted">User ID</label>
+        <input id="userId" class="input" placeholder="UUID пользователя" />
+      </div>
+      <div class="right">
+        <button id="loadBtn" class="btn">Загрузить текущие позиции</button>
+        <a id="toVal" class="link" href="#" target="_blank">Открыть оценки (UI)</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:16px;">
+    <div class="title">Новая позиция</div>
+    <div class="row">
+      <div style="flex:1 1 200px;">
+        <label class="muted">Тикер</label>
+        <input id="symbol" class="input" list="symList" placeholder="например: AAPL, MSFT, TSLA" />
+        <datalist id="symList">
+          <option value="AAPL"></option><option value="MSFT"></option><option value="TSLA"></option>
+          <option value="NVDA"></option><option value="AMZN"></option><option value="GOOGL"></option>
+          <option value="META"></option><option value="BRK.B"></option><option value="SPY"></option>
+          <option value="QQQ"></option><option value="GLD"></option><option value="BTC-USD"></option>
+        </datalist>
+      </div>
+      <div style="flex:1 1 160px;">
+        <label class="muted">Количество</label>
+        <input id="qty" class="input" type="number" step="0.00000001" min="0" placeholder="например: 10" />
+      </div>
+      <div style="flex:1 1 160px;">
+        <label class="muted">Цена покупки (опц.)</label>
+        <input id="price" class="input" type="number" step="0.00000001" min="0" placeholder="напр. 150.25" />
+      </div>
+      <div style="flex:1 1 180px;">
+        <label class="muted">Дата покупки (опц.)</label>
+        <input id="date" class="input" type="date" />
+      </div>
+      <div style="flex:1 1 120px;">
+        <label class="muted">Валюта</label>
+        <input id="ccy" class="input" value="USD" />
+      </div>
+      <div style="flex:1 1 160px;">
+        <label class="muted">Счёт (опц.)</label>
+        <input id="account" class="input" placeholder="main / broker1" />
+      </div>
+      <div>
+        <button id="addBtn" class="btn">Добавить в черновик</button>
+      </div>
+    </div>
+
+    <div style="margin-top:12px;" class="muted">Черновик (будет сохранён пачкой):</div>
+    <div id="draftChips" style="margin-top:8px;"></div>
+    <div style="margin-top:8px;">
+      <button id="saveBtn" class="btn">Сохранить черновик (bulk)</button>
+      <span id="status" class="muted" style="margin-left:10px;"></span>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="title">Текущие позиции пользователя</div>
+    <div style="overflow:auto;">
+      <table>
+        <thead>
+          <tr><th>Тикер</th><th>Количество</th><th>Цена покупки</th><th>Дата</th><th>Валюта</th><th>Счёт</th></tr>
+        </thead>
+        <tbody id="tblBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+const $=(q)=>document.querySelector(q);
+let draft=[];
+
+function toMoney(x){ return (x==null||x==="")?"":Number(x).toLocaleString("en-US",{maximumFractionDigits:8}); }
+function getParam(name){ const u=new URL(location.href); return u.searchParams.get(name)||""; }
+
+function renderDraft(){
+  const box=$("#draftChips"); box.innerHTML="";
+  if(draft.length===0){ box.innerHTML=`<span class="muted">Пусто</span>`; return; }
+  draft.forEach((p,idx)=>{
+    const el=document.createElement("span");
+    el.className="chip";
+    el.innerHTML=`<b>${p.symbol}</b> • qty: ${p.quantity}${p.buy_price?` @ ${p.buy_price}`:""}${p.buy_date?` on ${p.buy_date}`:""}${p.account?` • ${p.account}`:""}
+      <button data-i="${idx}" style="margin-left:8px;cursor:pointer;background:none;border:none;color:#ddd;">×</button>`;
+    el.querySelector("button").addEventListener("click",(e)=>{ draft.splice(Number(e.target.dataset.i),1); renderDraft(); });
+    box.appendChild(el);
+  });
+}
+
+function addToDraft(){
+  const s=$("#symbol").value.trim();
+  const q=$("#qty").value.trim();
+  if(!s){ alert("Укажите тикер"); return; }
+  if(!q || Number(q)<=0){ alert("Количество > 0"); return; }
+  draft.push({
+    symbol:s,
+    quantity:q, // строкой — совместимо с Decimal
+    buy_price:$("#price").value?$("#price").value:null,
+    buy_date:$("#date").value?$("#date").value:null,
+    currency:$("#ccy").value||"USD",
+    account:$("#account").value||null
+  });
+  renderDraft();
+  $("#qty").value=""; $("#price").value=""; $("#date").value="";
+}
+
+async function fetchJSON(url){
+  const r=await fetch(url);
+  if(!r.ok) throw new Error(`${r.status} ${await r.text()}`);
+  return r.json();
+}
+
+async function listPositions(){
+  const uid=$("#userId").value.trim();
+  if(!uid){ alert("Введите User ID"); return; }
+  const tb=$("#tblBody"); tb.innerHTML=`<tr><td colspan="6" class="muted">Загружаю...</td></tr>`;
+
+  // 1) пробуем серверную фильтрацию ?user_id=
+  let rows=null;
+  try{ rows = await fetchJSON(`/positions?user_id=${encodeURIComponent(uid)}`); }
+  catch(_){ /* fallback ниже */ }
+
+  // 2) если не вышло — тянем все и фильтруем по user_id клиентски
+  if(!Array.isArray(rows)){
+    rows = await fetchJSON(`/positions`);
+    rows = rows.filter(r=>String(r.user_id).toLowerCase()===uid.toLowerCase());
+  }
+
+  tb.innerHTML="";
+  if(!rows.length){ tb.innerHTML=`<tr><td colspan="6" class="muted">Нет позиций</td></tr>`; return; }
+  for(const r of rows){
+    const tr=document.createElement("tr");
+    tr.innerHTML=`<td>${r.symbol}</td><td>${toMoney(r.quantity)}</td><td>${toMoney(r.buy_price)}</td><td>${r.buy_date??""}</td><td>${r.currency}</td><td>${r.account??""}</td>`;
+    tb.appendChild(tr);
+  }
+}
+
+async function saveDraft(){
+  const uid=$("#userId").value.trim();
+  if(!uid){ alert("Введите User ID"); return; }
+  if(draft.length===0){ alert("Черновик пуст"); return; }
+  $("#saveBtn").disabled=true; $("#status").textContent="Сохраняю...";
+
+  // Пробуем два совместимых формата существующей ручки /positions/bulk_json:
+  // A) ?user_id=... и body = [PositionCreate...]
+  // B) body = { user_id, items: [PositionCreate...] }
+  let ok=false, resp=null, errText="";
+  try{
+    const r=await fetch(`/positions/bulk_json?user_id=${encodeURIComponent(uid)}`,{
+      method:"POST", headers:{ "Content-Type":"application/json" }, body:JSON.stringify(draft)
+    });
+    resp=await r.json();
+    if(!r.ok) throw new Error(typeof resp==="string"?resp:JSON.stringify(resp));
+    ok=true;
+  }catch(e){ errText=String(e); }
+
+  if(!ok){
+    try{
+      const r=await fetch(`/positions/bulk_json`,{
+        method:"POST", headers:{ "Content-Type":"application/json" }, body:JSON.stringify({ user_id:uid, items:draft })
+      });
+      resp=await r.json();
+      if(!r.ok) throw new Error(typeof resp==="string"?resp:JSON.stringify(resp));
+      ok=true;
+    }catch(e){ errText += " | "+String(e); }
+  }
+
+  if(ok){
+    $("#status").textContent=`OK: inserted ${resp.inserted??resp.created??0}, updated ${resp.updated??0}, failed ${resp.failed??0}`;
+    draft=[]; renderDraft();
+    await listPositions();
+  }else{
+    $("#status").textContent=`Ошибка: ${errText}`;
+  }
+  $("#saveBtn").disabled=false;
+}
+
+// External symbols typeahead functionality
+async function fillPopularExternal(){
+  try{
+    const res = await fetch('/symbols/external/popular');
+    if(!res.ok) return;
+    const arr = await res.json();
+    const dl = document.getElementById('symList'); dl.innerHTML = '';
+    arr.forEach(s => {
+      const o = document.createElement('option'); o.value = s; dl.appendChild(o);
+    });
+  }catch{}
+}
+
+let searchTimer = null;
+async function searchSymbolsExternal(term){
+  term = (term||'').trim();
+  if(term.length < 1) return;
+  try{
+    const res = await fetch(`/symbols/external/search?q=${encodeURIComponent(term)}`);
+    if(!res.ok) return;
+    const arr = await res.json();
+    const dl = document.getElementById('symList'); dl.innerHTML = '';
+    arr.forEach(s => {
+      const o = document.createElement('option'); o.value = s; dl.appendChild(o);
+    });
+  }catch{}
+}
+
+document.getElementById("addBtn").addEventListener("click", addToDraft);
+document.getElementById("saveBtn").addEventListener("click", saveDraft);
+document.getElementById("loadBtn").addEventListener("click", listPositions);
+
+window.addEventListener("DOMContentLoaded", ()=>{
+  renderNav("editor", { userInputId: "userId" });
+  
+  fillPopularExternal();
+
+  const symInput = document.getElementById('symbol');
+  symInput.addEventListener('input', (e)=>{
+    const v = e.target.value;
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(()=>searchSymbolsExternal(v), 180);
+  });
+
+  const uid=getParam("user_id"); if(uid){ $("#userId").value=uid; }
+  $("#toVal").href = `/ui/valuations.html?user_id=${encodeURIComponent($("#userId").value||uid||"")}`;
+  $("#userId").addEventListener("input", ()=>{ $("#toVal").href = `/ui/valuations.html?user_id=${encodeURIComponent($("#userId").value)}`; });
+  if(uid){ listPositions().catch(()=>{}); }
+});
+</script>
+</body>
+</html>
