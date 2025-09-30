@@ -43,9 +43,15 @@ services:
       SEED_DEMO: "${SEED_DEMO:-0}"   # сидер по умолчанию отключён
       DATABASE_URL: "postgresql://postgres:postgres@postgres:5432/${POSTGRES_DB:-postgres}"
       OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      # Конфигурация Ollama для подключения из Docker контейнера
+      OLLAMA_URL: "http://host.docker.internal:11434"
       # OPTIONAL:
       # OPENAI_BASE_URL: "https://api.openai.com/v1"
       # OPENAI_MODEL: "gpt-4o-mini"
+    # Настройка для доступа к хосту из контейнера
+    # Зачем: extra_hosts обеспечивает устойчивый DNS резолв host.docker.internal в Linux контейнере
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "8001:8000"
     depends_on:

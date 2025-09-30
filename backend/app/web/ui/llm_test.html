@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LLM Test - AI Portfolio Analyzer</title>
+    
+    <!-- 
+    LLM Test moved to AI Insights
+    
+    Этот файл больше не используется. LLM тестирование было перенесено 
+    в AI Insights для централизации всех AI функций в одном месте.
+    
+    Решение: Мы централизуем всё в AI Insights для лучшей организации кода.
+    -->
+    
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0;
+            padding: 20px;
+        }
+        
+        .redirect-container {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            padding: 40px;
+            text-align: center;
+            max-width: 500px;
+            width: 100%;
+        }
+        
+        .redirect-icon {
+            font-size: 4rem;
+            margin-bottom: 20px;
+        }
+        
+        .redirect-title {
+            font-size: 1.5rem;
+            color: #2c3e50;
+            margin-bottom: 16px;
+        }
+        
+        .redirect-message {
+            color: #666;
+            margin-bottom: 30px;
+            line-height: 1.6;
+        }
+        
+        .redirect-button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-block;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        .redirect-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+        }
+        
+        .countdown {
+            color: #888;
+            font-size: 14px;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="redirect-container">
+        <div class="redirect-icon">🔄</div>
+        <h1 class="redirect-title">LLM Test перемещен</h1>
+        <p class="redirect-message">
+            LLM тестирование было перенесено в AI Insights для лучшей организации функций.
+            Теперь все AI инструменты находятся в одном месте.
+        </p>
+        <a href="ai_insights.html" class="redirect-button">
+            🧠 Перейти к AI Insights
+        </a>
+        <div class="countdown" id="countdown">
+            Автоматический переход через <span id="timer">5</span> секунд...
+        </div>
+    </div>
+
+    <!-- JavaScript для автоматического перенаправления -->
+    <!-- Зачем: Автоматически перенаправляем пользователя на AI Insights -->
+    <script>
+        let countdown = 5;
+        const timerElement = document.getElementById('timer');
+        
+        const interval = setInterval(() => {
+            countdown--;
+            timerElement.textContent = countdown;
+            
+            if (countdown <= 0) {
+                clearInterval(interval);
+                window.location.href = 'ai_insights.html';
+            }
+        }, 1000);
+    </script>
+</body>
+</html>

@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Insights - AI Portfolio Analyzer</title>
+    
+    <style>
+        /* Основные стили для всего приложения */
+        body {
+            color: #eee;
+            background: #111;
+            font-family: Inter, system-ui, Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            line-height: 1.6;
+        }
+        
+        /* Навигационное меню - верхняя панель */
+        /* Зачем: Позволяет переключаться между основными разделами приложения */
+        nav {
+            background: #1a1a1a;
+            border-bottom: 1px solid #333;
+            padding: 0;
+        }
+        
+        nav ul {
+            display: flex;
+            gap: 0;
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        
+        nav li {
+            margin: 0;
+        }
+        
+        nav a {
+            color: #ddd;
+            text-decoration: none;
+            padding: 16px 24px;
+            display: block;
+            border-right: 1px solid #333;
+            transition: background-color 0.2s;
+        }
+        
+        nav a:hover {
+            background: #222;
+            color: #fff;
+        }
+        
+        nav a.active {
+            background: #333;
+            color: #fff;
+        }
+        
+        /* Контейнер для основного контента */
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+        
+        /* Заголовок страницы */
+        .page-header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+        
+        .page-header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 16px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .page-header p {
+            font-size: 1.1rem;
+            color: #aaa;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        
+        /* Сетка секций AI Insights */
+        /* Зачем: Организует различные блоки AI анализа в удобную структуру */
+        .insights-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 32px;
+        }
+        
+        /* Секция AI Insights */
+        .insight-section {
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 12px;
+            padding: 24px;
+        }
+        
+        .insight-section h2 {
+            margin: 0 0 20px 0;
+            color: #667eea;
+            font-size: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        .insight-section h2::before {
+            content: "🧠";
+            font-size: 1.2em;
+        }
+        
+        /* LLM Test Panel - основная секция */
+        .llm-test-panel {
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 12px;
+            padding: 24px;
+        }
+        
+        .llm-test-panel h2 {
+            margin: 0 0 20px 0;
+            color: #667eea;
+            font-size: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        .llm-test-panel h2::before {
+            content: "🔬";
+            font-size: 1.2em;
+        }
+        
+        /* Форма LLM тестирования */
+        .llm-form {
+            display: grid;
+            gap: 20px;
+        }
+        
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        
+        .form-group label {
+            color: #ddd;
+            font-weight: 600;
+            font-size: 14px;
+        }
+        
+        .form-group input,
+        .form-group textarea {
+            padding: 12px;
+            background: #222;
+            color: #eee;
+            border: 1px solid #444;
+            border-radius: 8px;
+            font-size: 14px;
+            font-family: 'Monaco', 'Menlo', monospace;
+            transition: border-color 0.2s;
+        }
+        
+        .form-group input:focus,
+        .form-group textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .form-group textarea {
+            min-height: 120px;
+            resize: vertical;
+        }
+        
+        .form-group input[type="text"] {
+            font-family: inherit;
+        }
+        
+        /* Кнопка запуска */
+        .run-button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 16px 32px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            justify-self: start;
+        }
+        
+        .run-button:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(102, 126, 234, 0.3);
+        }
+        
+        .run-button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        /* Блоки вывода результатов */
+        .output-section {
+            margin-top: 24px;
+            display: grid;
+            gap: 16px;
+        }
+        
+        .output-block {
+            background: #0f0f0f;
+            border: 1px solid #333;
+            border-radius: 8px;
+            padding: 16px;
+        }
+        
+        .output-block h3 {
+            margin: 0 0 12px 0;
+            color: #667eea;
+            font-size: 14px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .output-content {
+            background: #111;
+            border: 1px solid #222;
+            border-radius: 6px;
+            padding: 12px;
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 13px;
+            line-height: 1.5;
+            white-space: pre-wrap;
+            max-height: 300px;
+            overflow-y: auto;
+            color: #ccc;
+        }
+        
+        .trace-id {
+            color: #888;
+            font-size: 12px;
+            font-family: 'Monaco', 'Menlo', monospace;
+        }
+        
+        /* Placeholder секции */
+        .placeholder-section {
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 12px;
+            padding: 24px;
+            text-align: center;
+            color: #666;
+        }
+        
+        .placeholder-section h2 {
+            margin: 0 0 16px 0;
+            color: #555;
+            font-size: 1.3rem;
+        }
+        
+        .placeholder-section p {
+            margin: 0;
+            color: #666;
+            font-style: italic;
+        }
+        
+        /* Статус индикаторы */
+        .status {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        
+        .status.success {
+            background: #1a4d1a;
+            color: #4ade80;
+        }
+        
+        .status.error {
+            background: #4d1a1a;
+            color: #f87171;
+        }
+        
+        .status.loading {
+            background: #4d3d1a;
+            color: #fbbf24;
+        }
+        
+        /* Анимация загрузки */
+        .loading-spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 8px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        /* Адаптивность */
+        @media (max-width: 768px) {
+            .container {
+                padding: 20px 16px;
+            }
+            
+            .page-header h1 {
+                font-size: 2rem;
+            }
+            
+            .insights-grid {
+                gap: 24px;
+            }
+            
+            .llm-form {
+                gap: 16px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Верхняя навигация -->
+    <!-- Зачем: Позволяет переключаться между основными разделами приложения -->
+    <!-- Как добавить новый пункт: добавьте <li><a href="/ui/новая_страница.html">Название</a></li> -->
+    <nav>
+        <ul>
+            <li><a href="index.html">Home</a></li>
+            <li><a href="ai_insights.html" class="active">AI Insights</a></li>
+            <li><a href="portfolio_editor.html">Portfolio Editor</a></li>
+            <li><a href="portfolio_snapshot.html">Portfolio Snapshot</a></li>
+            <li><a href="valuations.html">Valuations</a></li>
+        </ul>
+    </nav>
+
+    <!-- Основной контент страницы -->
+    <div class="container">
+        <!-- Заголовок страницы -->
+        <div class="page-header">
+            <h1>🧠 AI Insights</h1>
+            <p>Интеллектуальный анализ портфеля с помощью локальных LLM моделей</p>
+        </div>
+
+        <!-- Сетка секций AI Insights -->
+        <!-- Зачем: Организует различные блоки AI анализа в удобную структуру -->
+        <!-- Как добавить новую секцию: добавьте новый .insight-section с уникальным id -->
+        <div class="insights-grid">
+            <!-- Секция Portfolio Summary -->
+            <div class="insight-section" id="portfolio-summary">
+                <h2>Portfolio Summary</h2>
+                <div class="placeholder-section">
+                    <h2>📊 Анализ портфеля</h2>
+                    <p>Здесь будет отображаться сводка по портфелю: распределение активов, доходность, основные метрики</p>
+                </div>
+            </div>
+
+            <!-- Секция Risk & Alerts -->
+            <div class="insight-section" id="risk-alerts">
+                <h2>Risk & Alerts</h2>
+                <div class="placeholder-section">
+                    <h2>⚠️ Риски и предупреждения</h2>
+                    <p>Здесь будут отображаться предупреждения о рисках, аномалиях и рекомендации по управлению рисками</p>
+                </div>
+            </div>
+
+            <!-- LLM Test Panel - основная секция -->
+            <!-- Зачем: Позволяет тестировать локальные LLM модели для анализа портфеля -->
+            <div class="llm-test-panel" id="llm-test-panel">
+                <h2>LLM Test Panel</h2>
+                
+                <!-- Описание секции -->
+                <p style="color: #aaa; margin-bottom: 24px; font-size: 14px;">
+                    Тестируйте локальные LLM модели для анализа портфеля. Введите промпт, выберите модель и получите структурированный ответ.
+                    Если указать JSON Schema, ответ будет в формате JSON.
+                </p>
+
+                <!-- Форма для тестирования LLM -->
+                <form class="llm-form" id="llmForm">
+                    <!-- Поле для промпта -->
+                    <div class="form-group">
+                        <label for="prompt">Промпт для анализа:</label>
+                        <textarea 
+                            id="prompt" 
+                            name="prompt" 
+                            placeholder="Проанализируй мой портфель: 60% акции (AAPL, MSFT, GOOGL), 30% облигации (BND), 10% золото (GLD). Какие риски и возможности?"
+                            required
+                        ></textarea>
+                    </div>
+
+                    <!-- Поле для модели (опционально) -->
+                    <div class="form-group">
+                        <label for="model">Модель LLM (оставьте пустым для серверного дефолта):</label>
+                        <input 
+                            type="text" 
+                            id="model" 
+                            name="model" 
+                            placeholder="llama3.1:8b, gemma2:9b, qwen2.5-coder:7b"
+                        />
+                    </div>
+
+                    <!-- Поле для JSON Schema (опционально) -->
+                    <div class="form-group">
+                        <label for="jsonSchema">JSON Schema (опционально, для структурированного ответа):</label>
+                        <textarea 
+                            id="jsonSchema" 
+                            name="jsonSchema" 
+                            placeholder='{"type": "object", "properties": {"analysis": {"type": "string"}, "risks": {"type": "array"}, "recommendations": {"type": "array"}}}'
+                        ></textarea>
+                    </div>
+
+                    <!-- Кнопка запуска -->
+                    <button type="submit" class="run-button" id="runButton">
+                        🚀 Run
+                    </button>
+                </form>
+
+                <!-- Блоки вывода результатов -->
+                <div class="output-section" id="outputSection" style="display: none;">
+                    <!-- Статус выполнения -->
+                    <div class="output-block">
+                        <h3>Status</h3>
+                        <div id="statusIndicator" class="status">Ready</div>
+                    </div>
+
+                    <!-- Результат выполнения -->
+                    <div class="output-block">
+                        <h3>Result</h3>
+                        <div id="resultRaw" class="output-content">Результат появится здесь...</div>
+                    </div>
+
+                    <!-- Trace ID для отладки -->
+                    <div class="output-block">
+                        <h3>Trace ID</h3>
+                        <div id="traceId" class="trace-id">Не установлен</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- JavaScript для обработки LLM тестирования -->
+    <!-- Зачем: Обрабатывает отправку формы, валидацию JSON, отображение результатов -->
+    <script>
+        // Получаем элементы DOM
+        // Зачем: Ссылки на HTML элементы для манипуляций
+        const form = document.getElementById('llmForm');
+        const runButton = document.getElementById('runButton');
+        const outputSection = document.getElementById('outputSection');
+        const statusIndicator = document.getElementById('statusIndicator');
+        const resultRaw = document.getElementById('resultRaw');
+        const traceId = document.getElementById('traceId');
+        const jsonSchemaField = document.getElementById('jsonSchema');
+
+        // Генерация и управление Trace ID
+        // Зачем: Отслеживание запросов для отладки и мониторинга
+        function getOrCreateTraceId() {
+            let traceId = localStorage.getItem('trace_id');
+            if (!traceId) {
+                traceId = `trace_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+                localStorage.setItem('trace_id', traceId);
+            }
+            return traceId;
+        }
+
+        // Валидация JSON Schema
+        // Зачем: Предотвращаем отправку невалидного JSON на сервер
+        function validateJsonSchema(schemaText) {
+            if (!schemaText.trim()) {
+                return { valid: true, schema: null };
+            }
+            
+            try {
+                const schema = JSON.parse(schemaText);
+                return { valid: true, schema: schema };
+            } catch (error) {
+                return { valid: false, error: error.message };
+            }
+        }
+
+        // Показать статус загрузки
+        // Зачем: Информируем пользователя о процессе обработки запроса
+        function showLoading() {
+            runButton.disabled = true;
+            runButton.innerHTML = '<span class="loading-spinner"></span>Running…';
+            outputSection.style.display = 'grid';
+            statusIndicator.textContent = 'Loading';
+            statusIndicator.className = 'status loading';
+            resultRaw.textContent = 'Отправляем запрос к LLM...';
+        }
+
+        // Показать успешный результат
+        // Зачем: Отображаем результат работы LLM
+        function showSuccess(data, responseHeaders) {
+            runButton.disabled = false;
+            runButton.innerHTML = '🚀 Run';
+            statusIndicator.textContent = 'Success';
+            statusIndicator.className = 'status success';
+            
+            // Форматируем ответ для отображения
+            let formattedResponse = '';
+            if (data.success) {
+                formattedResponse += `✅ Модель: ${data.model}\n`;
+                formattedResponse += `🔢 Токенов использовано: ${data.tokens_used || 'неизвестно'}\n\n`;
+                formattedResponse += `📝 Ответ:\n${data.response}\n\n`;
+                
+                if (data.raw_response) {
+                    formattedResponse += `🔧 Сырой ответ от Ollama:\n${data.raw_response}`;
+                }
+            } else {
+                formattedResponse = `❌ Ошибка: ${data.error}`;
+            }
+            
+            resultRaw.textContent = formattedResponse;
+            
+            // Обновляем Trace ID
+            const traceIdValue = responseHeaders.get('X-Trace-Id') || 'Не установлен';
+            traceId.textContent = traceIdValue;
+        }
+
+        // Показать ошибку
+        // Зачем: Информируем пользователя об ошибках
+        function showError(error) {
+            runButton.disabled = false;
+            runButton.innerHTML = '🚀 Run';
+            statusIndicator.textContent = 'Error';
+            statusIndicator.className = 'status error';
+            
+            let errorMessage = 'Произошла ошибка при отправке запроса.\n\n';
+            if (error.message) {
+                errorMessage += `Сообщение: ${error.message}\n`;
+            }
+            if (error.detail) {
+                errorMessage += `Детали: ${error.detail}\n`;
+            }
+            errorMessage += '\n💡 Проверьте:\n';
+            errorMessage += '- Запущен ли Ollama: ollama serve\n';
+            errorMessage += '- Скачана ли модель: ollama list\n';
+            errorMessage += '- Доступен ли API: http://localhost:11434/api/tags';
+            
+            resultRaw.textContent = errorMessage;
+        }
+
+        // Обработчик отправки формы
+        // Зачем: Основная логика отправки запроса к LLM через FastAPI
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault(); // Предотвращаем стандартную отправку формы
+            
+            // Валидируем JSON Schema
+            const schemaValidation = validateJsonSchema(jsonSchemaField.value);
+            if (!schemaValidation.valid) {
+                // Подсвечиваем поле с ошибкой
+                jsonSchemaField.style.borderColor = '#f87171';
+                jsonSchemaField.style.backgroundColor = '#4d1a1a';
+                resultRaw.textContent = `❌ Ошибка в JSON Schema: ${schemaValidation.error}`;
+                outputSection.style.display = 'grid';
+                return;
+            }
+            
+            // Сбрасываем подсветку ошибки
+            jsonSchemaField.style.borderColor = '#444';
+            jsonSchemaField.style.backgroundColor = '#222';
+            
+            // Собираем данные формы
+            // Зачем: Подготавливаем данные для отправки к API
+            const formData = new FormData(form);
+            const requestData = {
+                prompt: formData.get('prompt'),
+                model: formData.get('model') || undefined,
+                json_schema: schemaValidation.schema,
+                temperature: 0.7,
+                max_tokens: 1000
+            };
+            
+            // Показываем статус загрузки
+            showLoading();
+            
+            try {
+                // Получаем Trace ID
+                const currentTraceId = getOrCreateTraceId();
+                
+                // Отправляем запрос к FastAPI
+                // Зачем: Используем наш LLM proxy роутер
+                const response = await fetch('/llm/chat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Trace-Id': currentTraceId
+                    },
+                    body: JSON.stringify(requestData)
+                });
+                
+                // Проверяем статус ответа
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(`HTTP ${response.status}: ${errorData.detail || 'Неизвестная ошибка'}`);
+                }
+                
+                // Получаем и показываем ответ
+                const data = await response.json();
+                showSuccess(data, response.headers);
+                
+            } catch (error) {
+                console.error('Ошибка при отправке запроса:', error);
+                showError(error);
+            }
+        });
+
+        // Инициализация при загрузке страницы
+        // Зачем: Устанавливаем начальный Trace ID
+        document.addEventListener('DOMContentLoaded', () => {
+            const initialTraceId = getOrCreateTraceId();
+            traceId.textContent = initialTraceId;
+        });
+    </script>
+</body>
+</html>

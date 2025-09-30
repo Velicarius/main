@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { useAuthStore } from '../store/auth';
 import { getBaseUrl, setBaseUrl } from '../lib/api';
+import LLMTestPanel from '../components/LLMTestPanel';
+import ModelsSection from '../components/ModelsSection';
 
 export default function Settings() {
   const { email, user_id, logout } = useAuthStore();
@@ -11,6 +13,7 @@ export default function Settings() {
   const tabs = [
     { id: 'profile', label: 'Profile', icon: '👤' },
     { id: 'preferences', label: 'Preferences', icon: '⚙️' },
+    { id: 'llm-test', label: 'LLM Test', icon: '🔬' },
     { id: 'security', label: 'Security', icon: '🔒' },
     { id: 'about', label: 'About', icon: 'ℹ️' },
   ];
@@ -143,6 +146,17 @@ export default function Settings() {
                       <div className="w-5 h-5 bg-white rounded-full absolute top-0.5 right-0.5"></div>
                     </div>
                   </div>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'llm-test' && (
+              <div className="space-y-6">
+                <h2 className="text-xl font-semibold text-white">LLM Test Panel</h2>
+                <p className="text-slate-400">Test and interact with local LLM models</p>
+                <div className="space-y-6">
+                  <LLMTestPanel />
+                  <ModelsSection />
                 </div>
               </div>
             )}

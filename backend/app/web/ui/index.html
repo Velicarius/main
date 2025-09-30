@@ -2,43 +2,273 @@
 <html>
 <head>
   <meta charset="utf-8"/>
-  <title>AI Portfolio</title>
+  <title>AI Portfolio Analyzer</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <link rel="stylesheet" href="styles.css?v=1"/>
   <style>
-    body{color:#eee;background:#111;font-family:Inter,system-ui,Arial}
-    nav ul{display:flex;gap:14px;list-style:none;padding:10px;margin:0;border-bottom:1px solid #333}
-    nav a{color:#ddd;text-decoration:none;padding:6px 10px;border-radius:8px}
-    nav a:hover{background:#222}
-    .topbar{display:flex;gap:8px;align-items:center;padding:10px 12px;border-bottom:1px solid #333}
-    .tbl{width:100%;border-collapse:collapse;margin-top:8px}
-    .tbl th,.tbl td{border-bottom:1px solid #333;padding:8px;text-align:left}
+    /* Основные стили для всего приложения */
+    body {
+      color: #eee;
+      background: #111;
+      font-family: Inter, system-ui, Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      line-height: 1.6;
+    }
+    
+    /* Навигационное меню - верхняя панель */
+    /* Зачем: Позволяет переключаться между основными разделами приложения */
+    nav {
+      background: #1a1a1a;
+      border-bottom: 1px solid #333;
+      padding: 0;
+    }
+    
+    nav ul {
+      display: flex;
+      gap: 0;
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+    
+    nav li {
+      margin: 0;
+    }
+    
+    nav a {
+      color: #ddd;
+      text-decoration: none;
+      padding: 16px 24px;
+      display: block;
+      border-right: 1px solid #333;
+      transition: background-color 0.2s;
+    }
+    
+    nav a:hover {
+      background: #222;
+      color: #fff;
+    }
+    
+    nav a.active {
+      background: #333;
+      color: #fff;
+    }
+    
+    /* Контейнер для основного контента */
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 40px 20px;
+    }
+    
+    /* Заголовок главной страницы */
+    .hero {
+      text-align: center;
+      margin-bottom: 60px;
+    }
+    
+    .hero h1 {
+      font-size: 3rem;
+      margin-bottom: 16px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    
+    .hero p {
+      font-size: 1.2rem;
+      color: #aaa;
+      max-width: 600px;
+      margin: 0 auto;
+    }
+    
+    /* Сетка карточек для быстрого доступа */
+    /* Зачем: Позволяет быстро перейти к основным функциям приложения */
+    .cards-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 24px;
+      margin-top: 40px;
+    }
+    
+    .card {
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 12px;
+      padding: 24px;
+      transition: transform 0.2s, box-shadow 0.2s;
+      text-decoration: none;
+      color: inherit;
+    }
+    
+    .card:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 8px 25px rgba(0,0,0,0.3);
+      border-color: #555;
+    }
+    
+    .card h3 {
+      margin: 0 0 12px 0;
+      color: #667eea;
+      font-size: 1.3rem;
+    }
+    
+    .card p {
+      margin: 0;
+      color: #aaa;
+      font-size: 0.95rem;
+    }
+    
+    .card-icon {
+      font-size: 2rem;
+      margin-bottom: 16px;
+      display: block;
+    }
+    
+    /* Секция аутентификации */
+    .auth-section {
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 40px;
+    }
+    
+    .auth-section h3 {
+      margin: 0 0 16px 0;
+      color: #667eea;
+    }
+    
+    .auth-controls {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    
+    .auth-controls input {
+      padding: 8px 12px;
+      background: #222;
+      color: #eee;
+      border: 1px solid #444;
+      border-radius: 6px;
+      font-size: 14px;
+    }
+    
+    .auth-controls button {
+      padding: 8px 16px;
+      background: #333;
+      color: #eee;
+      border: 1px solid #555;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      transition: background-color 0.2s;
+    }
+    
+    .auth-controls button:hover {
+      background: #444;
+    }
+    
+    .auth-status {
+      color: #aaa;
+      font-size: 14px;
+    }
+    
+    /* Адаптивность для мобильных устройств */
+    @media (max-width: 768px) {
+      .hero h1 {
+        font-size: 2rem;
+      }
+      
+      .cards-grid {
+        grid-template-columns: 1fr;
+      }
+      
+      .auth-controls {
+        flex-direction: column;
+        align-items: stretch;
+      }
+      
+      .auth-controls input,
+      .auth-controls button {
+        width: 100%;
+      }
+    }
   </style>
 </head>
 <body>
+  <!-- Верхняя навигация -->
+  <!-- Зачем: Позволяет переключаться между основными разделами приложения -->
+  <!-- Как добавить новый пункт: добавьте <li><a href="/ui/новая_страница.html">Название</a></li> -->
   <nav>
     <ul>
-      <li><a href="#/dashboard/overview">Dashboard</a></li>
-      <li><a href="#/dashboard/positions">Positions</a></li>
-      <li><a href="#/dashboard/insights">AI Insights</a></li>
-      <li><a href="#/analysis/performance">Performance</a></li>
-      <li><a href="#/analysis/risks">Risks</a></li>
-      <li><a href="#/analysis/categories">Categories</a></li>
-      <li><a href="#/settings">Settings</a></li>
+      <li><a href="index.html" class="active">Home</a></li>
+      <li><a href="ai_insights.html">AI Insights</a></li>
+      <li><a href="portfolio_editor.html">Portfolio Editor</a></li>
+      <li><a href="portfolio_snapshot.html">Portfolio Snapshot</a></li>
+      <li><a href="valuations.html">Valuations</a></li>
     </ul>
   </nav>
 
-  <div id="auth" style="margin:10px 0;padding:10px 12px;border-bottom:1px solid #333">
-    <input id="email" type="text" placeholder="Email" style="margin-right:8px;padding:4px 8px;background:#222;color:#eee;border:1px solid #444;border-radius:4px"/>
-    <input id="name" type="text" placeholder="Name (for register)" style="margin-right:8px;padding:4px 8px;background:#222;color:#eee;border:1px solid #444;border-radius:4px"/>
-    <button onclick="register()" style="margin-right:8px;padding:4px 8px;background:#333;color:#eee;border:1px solid #555;border-radius:4px;cursor:pointer">Register</button>
-    <button onclick="login()" style="margin-right:8px;padding:4px 8px;background:#333;color:#eee;border:1px solid #555;border-radius:4px;cursor:pointer">Login</button>
-    <button onclick="logout()" style="margin-right:8px;padding:4px 8px;background:#333;color:#eee;border:1px solid #555;border-radius:4px;cursor:pointer">Logout</button>
-    <span id="authStatus" style="opacity:.8"></span>
-  </div>
+  <!-- Основной контент страницы -->
+  <div class="container">
+    <!-- Заголовок и описание -->
+    <div class="hero">
+      <h1>🤖 AI Portfolio Analyzer</h1>
+      <p>Интеллектуальный анализ инвестиционных портфелей с использованием локальных LLM</p>
+    </div>
 
-  <div id="topbar"></div>
-  <main id="app" style="padding:12px"></main>
+    <!-- Секция аутентификации -->
+    <!-- Зачем: Позволяет пользователям входить в систему для доступа к персональным данным -->
+    <div class="auth-section">
+      <h3>🔐 Аутентификация</h3>
+      <div class="auth-controls">
+        <input id="email" type="text" placeholder="Email" />
+        <input id="name" type="text" placeholder="Name (for register)" />
+        <button onclick="register()">Register</button>
+        <button onclick="login()">Login</button>
+        <button onclick="logout()">Logout</button>
+        <span id="authStatus" class="auth-status"></span>
+      </div>
+    </div>
+
+    <!-- Карточки быстрого доступа -->
+    <!-- Зачем: Позволяет быстро перейти к основным функциям приложения -->
+    <!-- Как добавить новую карточку: добавьте новый .card с ссылкой на нужную страницу -->
+    <div class="cards-grid">
+      <a href="ai_insights.html" class="card">
+        <span class="card-icon">🧠</span>
+        <h3>AI Insights</h3>
+        <p>Анализ портфеля с помощью локальных LLM. Тестирование моделей, генерация отчетов и рекомендаций.</p>
+      </a>
+
+      <a href="portfolio_editor.html" class="card">
+        <span class="card-icon">📊</span>
+        <h3>Portfolio Editor</h3>
+        <p>Создание и редактирование инвестиционных портфелей. Управление позициями и активами.</p>
+      </a>
+
+      <a href="portfolio_snapshot.html" class="card">
+        <span class="card-icon">📸</span>
+        <h3>Portfolio Snapshot</h3>
+        <p>Просмотр текущего состояния портфеля. Анализ распределения активов и доходности.</p>
+      </a>
+
+      <a href="valuations.html" class="card">
+        <span class="card-icon">💰</span>
+        <h3>Valuations</h3>
+        <p>Историческая оценка портфеля. Графики доходности и анализ рисков.</p>
+      </a>
+
+      <a href="llm_test.html" class="card">
+        <span class="card-icon">🔬</span>
+        <h3>LLM Test</h3>
+        <p>Тестирование локальных LLM моделей. Проверка работы Ollama и различных моделей.</p>
+      </a>
+    </div>
+  </div>
 
   <script src="script.js?v=5"></script>
   <script>

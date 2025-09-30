@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useAuthStore } from '../store/auth';
 import { apiFetch } from '../lib/api';
+import AIInsightsPortfolioAnalyzer from '../components/ai/AIInsightsPortfolioAnalyzer';
 
 interface PortfolioAssessment {
   status: string;
@@ -67,6 +68,7 @@ export default function Insights() {
   const [error, setError] = useState<string | null>(null);
   const [selectedModel, setSelectedModel] = useState('gpt-4o-mini');
   const [language, setLanguage] = useState('ru');
+  const [activeTab, setActiveTab] = useState<'portfolio-analyzer' | 'assessment'>('portfolio-analyzer');
 
   const runAssessment = async () => {
     if (!user_id) return;
@@ -126,69 +128,104 @@ export default function Insights() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold bg-gradient-to-r from-white to-slate-300 bg-clip-text text-transparent">
-            🤖 AI Анализ Портфеля
+            🤖 AI Insights
           </h1>
-          <p className="text-slate-400 mt-2">Профессиональный анализ рисков, диверсификации и производительности</p>
+          <p className="text-slate-400 mt-2">Профессиональный анализ портфеля и тестирование локальных LLM</p>
         </div>
         <div className="hidden sm:flex items-center space-x-2 text-sm text-slate-400">
           <div className="w-2 h-2 bg-purple-500 rounded-full animate-pulse"></div>
           <span>AI Powered</span>
         </div>
       </div>
-      
-      {/* Controls */}
-      <div className="bg-slate-800/50 backdrop-blur-xl rounded-xl p-6 border border-slate-700/50 shadow-lg">
-        <div className="flex flex-wrap gap-6 items-end">
-          <div className="flex-1 min-w-[200px]">
-            <label className="block text-sm font-medium text-slate-300 mb-2">Модель AI</label>
-            <select
-              value={selectedModel}
-              onChange={(e) => setSelectedModel(e.target.value)}
-              className="w-full px-4 py-3 bg-slate-700/50 border border-slate-600/50 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 backdrop-blur-sm transition-all duration-200"
-            >
-              <option value="gpt-4o-mini">GPT-4o Mini</option>
-              <option value="gpt-4o">GPT-4o</option>
-            </select>
-          </div>
-          <div className="flex-1 min-w-[150px]">
-            <label className="block text-sm font-medium text-slate-300 mb-2">Язык</label>
-            <select
-              value={language}
-              onChange={(e) => setLanguage(e.target.value)}
-              className="w-full px-4 py-3 bg-slate-700/50 border border-slate-600/50 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 backdrop-blur-sm transition-all duration-200"
-            >
-              <option value="ru">Русский</option>
-              <option value="en">English</option>
-            </select>
-          </div>
+
+      {/* Табы для переключения между функциями */}
+      <div className="bg-slate-800/50 backdrop-blur-xl rounded-xl p-2 border border-slate-700/50 shadow-lg">
+        <div className="flex space-x-2">
           <button
-            onClick={runAssessment}
-            disabled={loading || !user_id}
-            className="px-8 py-3 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white rounded-lg transition-all duration-200 shadow-lg shadow-purple-500/25 font-medium disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none"
+            onClick={() => setActiveTab('portfolio-analyzer')}
+            className={`flex-1 px-4 py-3 rounded-lg font-medium transition-all duration-200 ${
+              activeTab === 'portfolio-analyzer'
+                ? 'bg-gradient-to-r from-purple-600 to-blue-600 text-white shadow-lg shadow-purple-500/25'
+                : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
+            }`}
           >
-            {loading ? (
-              <div className="flex items-center space-x-2">
-                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                <span>Анализирую...</span>
-              </div>
-            ) : (
-              'Запустить анализ'
-            )}
+            📊 Portfolio Analyzer v1
+          </button>
+          <button
+            onClick={() => setActiveTab('assessment')}
+            className={`flex-1 px-4 py-3 rounded-lg font-medium transition-all duration-200 ${
+              activeTab === 'assessment'
+                ? 'bg-gradient-to-r from-purple-600 to-blue-600 text-white shadow-lg shadow-purple-500/25'
+                : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
+            }`}
+          >
+            🤖 Анализ Портфеля (Generic)
           </button>
         </div>
-        {error && (
-          <div className="mt-4 p-4 bg-gradient-to-r from-red-900/20 to-red-800/20 border border-red-500/30 rounded-lg backdrop-blur-sm">
-            <div className="flex items-center space-x-3">
-              <div className="w-6 h-6 bg-red-500/20 rounded-full flex items-center justify-center">
-                <span className="text-red-400 text-sm">!</span>
-              </div>
-              <p className="text-red-400 font-medium">{error}</p>
-            </div>
-          </div>
-        )}
       </div>
+      
+      {/* Контент в зависимости от активного таба */}
+      {activeTab === 'portfolio-analyzer' && (
+        <AIInsightsPortfolioAnalyzer />
+      )}
 
-      {assessment && (
+      {activeTab === 'assessment' && (
+        <>
+          {/* Controls для анализа портфеля */}
+          <div className="bg-slate-800/50 backdrop-blur-xl rounded-xl p-6 border border-slate-700/50 shadow-lg">
+            <div className="flex flex-wrap gap-6 items-end">
+              <div className="flex-1 min-w-[200px]">
+                <label className="block text-sm font-medium text-slate-300 mb-2">Модель AI</label>
+                <select
+                  value={selectedModel}
+                  onChange={(e) => setSelectedModel(e.target.value)}
+                  className="w-full px-4 py-3 bg-slate-700/50 border border-slate-600/50 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 backdrop-blur-sm transition-all duration-200"
+                >
+                  <option value="gpt-4o-mini">GPT-4o Mini</option>
+                  <option value="gpt-4o">GPT-4o</option>
+                </select>
+              </div>
+              <div className="flex-1 min-w-[150px]">
+                <label className="block text-sm font-medium text-slate-300 mb-2">Язык</label>
+                <select
+                  value={language}
+                  onChange={(e) => setLanguage(e.target.value)}
+                  className="w-full px-4 py-3 bg-slate-700/50 border border-slate-600/50 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 backdrop-blur-sm transition-all duration-200"
+                >
+                  <option value="ru">Русский</option>
+                  <option value="en">English</option>
+                </select>
+              </div>
+              <button
+                onClick={runAssessment}
+                disabled={loading || !user_id}
+                className="px-8 py-3 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white rounded-lg transition-all duration-200 shadow-lg shadow-purple-500/25 font-medium disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none"
+              >
+                {loading ? (
+                  <div className="flex items-center space-x-2">
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                    <span>Анализирую...</span>
+                  </div>
+                ) : (
+                  'Запустить анализ'
+                )}
+              </button>
+            </div>
+            {error && (
+              <div className="mt-4 p-4 bg-gradient-to-r from-red-900/20 to-red-800/20 border border-red-500/30 rounded-lg backdrop-blur-sm">
+                <div className="flex items-center space-x-3">
+                  <div className="w-6 h-6 bg-red-500/20 rounded-full flex items-center justify-center">
+                    <span className="text-red-400 text-sm">!</span>
+                  </div>
+                  <p className="text-red-400 font-medium">{error}</p>
+                </div>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      {activeTab === 'assessment' && assessment && (
         <div className="space-y-8">
           {/* Overview */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

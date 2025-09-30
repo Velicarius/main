@@ -5,7 +5,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from celery import Celery
 from app.core.config import settings
 from app.routers import health, portfolio, dbtest, portfolio_value, prices_ingest, positions, admin_tasks, admin_eod, portfolio_valuations
-from app.routers import admin_eod_sync, symbols_external, ai_portfolio, auth, users, prices_eod
+from app.routers import admin_eod_sync, symbols_external, ai_portfolio, auth, users, prices_eod, llm_proxy, debug_net
 from app.database import SessionLocal
 from app.db.seed import seed_demo_data
 
@@ -16,18 +16,21 @@ log = logging.getLogger(__name__)
 
 app = FastAPI(title="AI Portfolio API", version="0.1.0")
 
-# Configure CORS
+# Configure CORS для фронтенда и UI
+# Зачем: Позволяем фронтенду (React/Vite) и встроенному UI обращаться к API
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:5173",
+        "http://localhost:5173",  # Vite dev server (React frontend)
         "http://127.0.0.1:5173",
-        "http://localhost:8080",
+        "http://localhost:8080",  # Альтернативный порт для фронтенда
         "http://127.0.0.1:8080",
+        "http://localhost:8000",  # Встроенный UI (FastAPI static files)
+        "http://127.0.0.1:8000",
     ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_credentials=True,  # Разрешаем cookies для аутентификации
+    allow_methods=["*"],     # Разрешаем все HTTP методы (GET, POST, PUT, DELETE)
+    allow_headers=["*"],     # Разрешаем все заголовки (Content-Type, Authorization)
 )
 
 # Session cookie для OAuth
@@ -43,28 +46,34 @@ if not getattr(app.state, "TEST_MODE", False):
         backend=f"redis://{settings.redis_host}:{settings.redis_port}/1",
     )
 
-app.include_router(health.router)
-app.include_router(portfolio.router)
-app.include_router(dbtest.router)
-app.include_router(portfolio_value.router)
-app.include_router(positions.router)
-app.include_router(prices_ingest.router)
-app.include_router(prices_eod.router)
-app.include_router(admin_tasks.router)
-app.include_router(admin_eod.router)
-app.include_router(admin_eod_sync.router)
-app.include_router(portfolio_valuations.router)
-app.include_router(symbols_external.router)
-app.include_router(ai_portfolio.router)
-app.include_router(auth.router)
-app.include_router(users.router)
+# Подключаем все роутеры к FastAPI приложению
+# Зачем: Каждый роутер добавляет свои endpoints к API
+app.include_router(health.router)              # /health - проверка состояния API
+app.include_router(portfolio.router)           # /portfolio - управление портфелями
+app.include_router(dbtest.router)              # /dbtest - тестирование БД
+app.include_router(portfolio_value.router)     # /portfolio-value - расчет стоимости
+app.include_router(positions.router)           # /positions - управление позициями
+app.include_router(prices_ingest.router)       # /prices-ingest - загрузка цен
+app.include_router(prices_eod.router)          # /prices-eod - EOD цены
+app.include_router(admin_tasks.router)         # /admin/tasks - админские задачи
+app.include_router(admin_eod.router)           # /admin/eod - EOD админка
+app.include_router(admin_eod_sync.router)      # /admin/eod-sync - синхронизация EOD
+app.include_router(portfolio_valuations.router) # /portfolio-valuations - оценки портфеля
+app.include_router(symbols_external.router)    # /symbols-external - внешние символы
+app.include_router(ai_portfolio.router)        # /ai-portfolio - AI анализ портфеля
+app.include_router(auth.router)                # /auth - аутентификация
+app.include_router(users.router)               # /users - управление пользователями
+app.include_router(llm_proxy.router)           # /llm - прокси к локальным LLM через Ollama
+app.include_router(debug_net.router)           # /debug - диагностика сетевых подключений (только для разработки)
 
 
-# Mount static files for UI
+# Подключаем статические файлы для встроенного UI
+# Зачем: Позволяем открывать HTML страницы напрямую через FastAPI
 ui_dir = os.path.join(os.path.dirname(__file__), "web", "ui")
 if os.path.exists(ui_dir):
     app.mount("/ui", StaticFiles(directory=ui_dir, html=True), name="ui")
     print("✅ Embedded UI served at /ui")
+    print("💡 LLM Test UI: http://localhost:8000/ui/llm_test.html")
 
 
 @app.on_event("startup")
