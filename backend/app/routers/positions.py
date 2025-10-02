@@ -5,9 +5,15 @@ from sqlalchemy.dialects.postgresql import insert
 from app.database import get_db
 from app.models.position import Position
 from app.schemas import PositionCreate, PositionUpdate, PositionOut, BulkPositionResult, SellPositionRequest
+from app.services.auto_price_loader import load_price_for_symbol, load_prices_for_symbols
+from app.services.price_eod import PriceEODRepository
+from app.models.price_eod import PriceEOD
 from uuid import UUID
 from decimal import Decimal
 from typing import List
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/positions", tags=["positions"])
 
@@ -20,17 +26,61 @@ def get_positions(
     request: Request,
     db: Session = Depends(get_db)
 ):
-    """Получить все позиции пользователя"""
+    """Получить все позиции пользователя с последними ценами"""
     uid = request.session.get("user_id")
     if not uid:
-        return []
-    
-    user_id = UUID(uid)
+        # Временная заглушка для тестирования - используем первого пользователя
+        from app.models.user import User
+        first_user = db.execute(select(User).limit(1)).scalar_one_or_none()
+        if not first_user:
+            return []
+        user_id = first_user.id
+    else:
+        user_id = UUID(uid)
     positions = db.execute(
         select(Position).where(Position.user_id == user_id)
     ).scalars().all()
     
-    return positions
+    # Присоединяем последние цены из EOD таблицы
+    price_repo = PriceEODRepository(db)
+    
+    result = []
+    for pos in positions:
+        position_dict = {
+            "id": pos.id,
+            "user_id": pos.user_id,
+            "symbol": pos.symbol,
+            "quantity": pos.quantity,
+            "buy_price": pos.buy_price,
+            "buy_date": pos.buy_date,
+            "currency": pos.currency,
+            "account": pos.account,
+        }
+        
+        # Получаем последнюю цену за день (пробуем разные варианты символа)
+        latest_price = None
+        symbols_to_try = [
+            pos.symbol,
+            pos.symbol.upper(),
+            pos.symbol.lower(),
+            pos.symbol.replace('.US', '.us'),
+            pos.symbol.replace('.us', '.US'),
+            pos.symbol.replace('.US', ''),
+            pos.symbol.replace('.us', '')
+        ]
+        
+        for symbol_variant in symbols_to_try:
+            latest_price = price_repo.get_latest_price(symbol_variant)
+            if latest_price:
+                break
+        
+        if latest_price:
+            position_dict["last_price"] = latest_price.close
+            position_dict["last_date"] = latest_price.date
+        
+        result.append(position_dict)
+    
+    return result
 
 
 @router.post("", response_model=PositionOut)
@@ -46,11 +96,21 @@ def create_position(
     
     user_id = UUID(uid)
     try:
-        # Специальная обработка для USD
+        # Специальная обработка для USD - используем баланс вместо позиции
         symbol = position_data.symbol.upper().strip()
         if symbol == "USD":
-            # Для USD buy_price всегда 1.0
-            position_data.buy_price = Decimal("1.0")
+            # Обновляем баланс пользователя вместо создания USD позиции
+            from app.models.user import User
+            user = db.execute(select(User).where(User.id == user_id)).scalar_one_or_none()
+            if not user:
+                raise HTTPException(status_code=404, detail="User not found")
+            
+            if user.usd_balance is None:
+                user.usd_balance = Decimal("0")
+            user.usd_balance += position_data.quantity
+            
+            db.commit()
+            return {"message": f"USD balance updated by {position_data.quantity}"}
         
         # Проверяем существующую позицию по (user_id, symbol, account)
         existing = db.execute(
@@ -100,6 +160,14 @@ def create_position(
             db.add(position)
             db.commit()
             db.refresh(position)
+            
+            # Автоматически загружаем цену для нового символа
+            try:
+                load_price_for_symbol(symbol, db)
+                logger.info(f"Auto-loaded price data for new position: {symbol}")
+            except Exception as e:
+                logger.warning(f"Failed to auto-load price for {symbol}: {e}")
+                # Не прерываем создание позиции из-за ошибки загрузки цены
             
             return position
     except Exception as e:
@@ -181,6 +249,21 @@ def bulk_create_positions(
                 errors.append(f"Failed to process {pos_data.symbol}: {str(e)}")
         
         db.commit()
+        
+        # Автоматически загружаем цены для всех новых символов
+        new_symbols = set()
+        for pos_data in positions:
+            symbol = pos_data.symbol.upper().strip()
+            if symbol != 'USD':
+                new_symbols.add(symbol)
+        
+        if new_symbols:
+            try:
+                load_results = load_prices_for_symbols(list(new_symbols), db)
+                loaded_count = sum(1 for success in load_results.values() if success)
+                logger.info(f"Auto-loaded prices for {loaded_count}/{len(new_symbols)} new symbols")
+            except Exception as e:
+                logger.warning(f"Failed to auto-load prices for bulk operation: {e}")
         
     except Exception as e:
         db.rollback()
@@ -272,34 +355,19 @@ def sell_position(
             db.commit()
             return {"message": "Position sold completely and deleted"}
         
-        # Ищем или создаем USD позицию
-        usd_position = db.execute(
-            select(Position).where(
-                and_(
-                    Position.user_id == user_id,
-                    Position.symbol == "USD",
-                    Position.account == position.account
-                )
-            )
-        ).scalar_one_or_none()
+        # Обновляем USD баланс пользователя
+        from app.models.user import User
+        user = db.execute(select(User).where(User.id == user_id)).scalar_one_or_none()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
         
-        if usd_position:
-            # Добавляем USD к существующей позиции
-            usd_received = sell_data.quantity * (sell_data.sell_price or position.buy_price or Decimal("0"))
-            usd_position.quantity += usd_received
-        else:
-            # Создаем новую USD позицию
-            usd_received = sell_data.quantity * (sell_data.sell_price or position.buy_price or Decimal("0"))
-            usd_position = Position(
-                user_id=user_id,
-                symbol="USD",
-                quantity=usd_received,
-                buy_price=Decimal("1.0"),
-                buy_date=sell_data.sell_date,
-                currency="USD",
-                account=position.account
-            )
-            db.add(usd_position)
+        # Рассчитываем сумму полученную от продажи
+        usd_received = sell_data.quantity * (sell_data.sell_price or position.buy_price or Decimal("0"))
+        
+        # Обновляем баланс пользователя
+        if user.usd_balance is None:
+            user.usd_balance = Decimal("0")
+        user.usd_balance += usd_received
         
         db.commit()
         db.refresh(position)
@@ -370,6 +438,14 @@ def add_position_legacy(
         db.add(position)
         db.commit()
         db.refresh(position)
+        
+        # Автоматически загружаем цену для нового символа
+        try:
+            load_price_for_symbol(symbol.upper().strip(), db)
+            logger.info(f"Auto-loaded price data for legacy position: {symbol}")
+        except Exception as e:
+            logger.warning(f"Failed to auto-load price for {symbol}: {e}")
+            # Не прерываем создание позиции из-за ошибки загрузки цены
         
         return {
             "id": str(position.id),

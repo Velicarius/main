@@ -43,8 +43,13 @@ services:
       SEED_DEMO: "${SEED_DEMO:-0}"   # сидер по умолчанию отключён
       DATABASE_URL: "postgresql://postgres:postgres@postgres:5432/${POSTGRES_DB:-postgres}"
       OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      ADMIN_TOKEN: "${ADMIN_TOKEN:-admin123}"
       # Конфигурация Ollama для подключения из Docker контейнера
       OLLAMA_URL: "http://host.docker.internal:11434"
+      # Конфигурация Redis для unified cache service
+      REDIS_HOST: "redis"
+      REDIS_PORT: "6379"
+      REDIS_DB: "0"
       # OPTIONAL:
       # OPENAI_BASE_URL: "https://api.openai.com/v1"
       # OPENAI_MODEL: "gpt-4o-mini"

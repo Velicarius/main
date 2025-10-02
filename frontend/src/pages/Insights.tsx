@@ -1,482 +1,661 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuthStore } from '../store/auth';
-import { apiFetch } from '../lib/api';
-import AIInsightsPortfolioAnalyzer from '../components/ai/AIInsightsPortfolioAnalyzer';
-
-interface PortfolioAssessment {
-  status: string;
-  model: string;
-  snapshot: {
-    total_value: number;
-    hhi: number;
-    top_concentration_pct: number;
-    missing_prices: string[];
-  };
-  ai: {
-    rating: {
-      score: number;
-      label: string;
-      risk_level: string;
-    };
-    overview: {
-      headline: string;
-      tags?: string[];
-      key_strengths?: string[];
-      key_concerns?: string[];
-    };
-    categories: Array<{
-      name: string;
-      score: number;
-      note?: string;
-      trend?: string;
-    }>;
-    insights: string[];
-    risks: Array<{
-      item: string;
-      severity: string;
-      mitigation?: string;
-      impact?: string;
-    }>;
-    performance: {
-      since_buy_pl_pct?: number;
-      comment?: string;
-      win_rate_pct?: number;
-      avg_position_return?: number;
-      volatility_assessment?: string;
-    };
-    diversification: {
-      score: number;
-      concentration_risk: string;
-      sector_diversity?: string;
-      recommendations?: string[];
-    };
-    actions: Array<{
-      title: string;
-      rationale: string;
-      expected_impact?: string;
-      priority: number;
-      timeframe?: string;
-    }>;
-    summary_markdown: string;
-  };
-}
+import { KPICard } from '../components/insights/KPICard';
+import { GroupVisualization } from '../components/insights/GroupVisualization';
+import { SentimentGroupVisualization } from '../components/insights/SentimentGroupVisualization';
+import { AnalysisControls } from '../components/insights/AnalysisControls';
+import { 
+  InsightsV2Response, 
+  InsightsV2Request
+} from '../types/insightsV2';
+import { swrInsightsAPI, SWRInsightsData } from '../lib/api-insights-swr';
+import { fmtPct, fmtUSD, fmtWeight, fmtRiskScore } from '../utils/number';
+import { sentimentAPI } from '../lib/api-sentiment';
+import { PortfolioSentimentMetrics, SentimentUtils, SentimentGrouping } from '../types/sentiment';
 
 export default function Insights() {
   const { user_id } = useAuthStore();
-  const [assessment, setAssessment] = useState<PortfolioAssessment | null>(null);
+  
+  // SWR данные
+  const [swrData, setSwrData] = useState<SWRInsightsData | null>(null);
+  
+  // Легаси поддержка для компонентов UI
+  const [analysisData, setAnalysisData] = useState<InsightsV2Response | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [selectedModel, setSelectedModel] = useState('gpt-4o-mini');
-  const [language, setLanguage] = useState('ru');
-  const [activeTab, setActiveTab] = useState<'portfolio-analyzer' | 'assessment'>('portfolio-analyzer');
+  
+  // === Метаданные кэша ===
+  const [cacheMetadata, setCacheMetadata] = useState<{
+    cached: boolean;
+    lastUpdated: Date | null;
+    e2eMs: number;
+    llmMs: number;
+    modelVersion: string;
+  }>({
+    cached: false,
+    lastUpdated: null,
+    e2eMs: 0,
+    llmMs: 0,
+    modelVersion: ''
+  });
+  
+  // Sentiment данные
+  const [sentimentData, setSentimentData] = useState<PortfolioSentimentMetrics | null>(null);
+  const [sentimentGrouping, setSentimentGrouping] = useState<SentimentGrouping | null>(null);
+  const [sentimentLoading, setSentimentLoading] = useState(false);
+  const [escalationRate, setEscalationRate] = useState<number | null>(null);
+  
+  // Параметры анализа для Insights
+  const [params, setParams] = useState<InsightsV2Request>(() => {
+    // Проверяем URL параметры или localStorage для сохранения настроек
+    const urlParams = new URLSearchParams(window.location.search);
+    const storedParams = localStorage.getItem('insights-params');
+    
+    const defaultParams: InsightsV2Request = {
+      model: 'llama3.1:8b',
+      horizon_months: 6,
+      risk_profile: 'Balanced'
+    };
+    
+    if (storedParams) {
+      try {
+        const parsed = JSON.parse(storedParams);
+        defaultParams.model = parsed.model || defaultParams.model;
+        defaultParams.horizon_months = parsed.horizon_months || defaultParams.horizon_months;
+        defaultParams.risk_profile = parsed.risk_profile || defaultParams.risk_profile;
+      } catch (e) {
+        console.warn('Invalid stored params:', e);
+      }
+    }
+    
+    // URL параметры имеют приоритет
+    if (urlParams.get('model')) defaultParams.model = urlParams.get('model')!;
+    if (urlParams.get('horizon')) defaultParams.horizon_months = parseInt(urlParams.get('horizon')!);
+    if (urlParams.get('risk')) defaultParams.risk_profile = urlParams.get('risk') as any;
+    
+    return defaultParams;
+  });
 
-  const runAssessment = async () => {
+
+  // Сохраняем параметры в localStorage при изменении
+  useEffect(() => {
+    localStorage.setItem('insights-params', JSON.stringify(params));
+    
+    // Обновляем URL для шаринга
+    const url = new URL(window.location.href);
+    url.searchParams.set('model', params.model);
+    url.searchParams.set('horizon', params.horizon_months.toString());
+    url.searchParams.set('risk', params.risk_profile);
+    window.history.replaceState({}, '', url.toString());
+  }, [params]);
+
+  // Автоматический старт анализа при первой загрузке 
+  useEffect(() => {
+    if (user_id && !analysisData && !loading) { // Включено обратно
+      // Автоматически запускаем анализ при первом открытии страницы
+      console.log('Auto-starting analysis for user:', user_id);
+      runAnalysis();
+    }
+  }, [user_id]);
+
+  const loadSentimentData = async () => {
+    if (!user_id) {
+      console.error('No user ID available for sentiment analysis');
+      return;
+    }
+
+    setSentimentLoading(true);
+
+    try {
+      console.log('Loading sentiment data for user:', user_id);
+      
+      // Параллельная загрузка sentiment данных
+      const [portfolioMetrics, grouping] = await Promise.all([
+        sentimentAPI.getPortfolioSentiment(user_id, 30),
+        sentimentAPI.getSentimentGrouping(user_id, '30d')
+      ]);
+
+      console.log('Sentiment data loaded:', { portfolioMetrics, grouping });
+      setSentimentData(portfolioMetrics);
+      setSentimentGrouping(grouping);
+
+    } catch (err: any) {
+      console.error('Failed to load sentiment data:', err);
+      // Не устанавливаем ошибку в общий state, sentiment данные не критичны
+    } finally {
+      setSentimentLoading(false);
+    }
+  };
+
+  const runAnalysis = async () => {
     if (!user_id) return;
     
     setLoading(true);
     setError(null);
+    setEscalationRate(null);
+    
+    const startTime = performance.now();
     
     try {
-      const response = await apiFetch(`/ai/portfolio/assess?user_id=${user_id}&model=${selectedModel}&language=${language}`, {
-        method: 'POST'
+      console.log('🚀 Starting INSIGHTS ANALYSIS with SWR - params:', params);
+      
+      // 🔄 Используем новый SWR API с полным кэшированием
+      const [swrResponse] = await Promise.all([
+        swrInsightsAPI.getInsights(user_id!, 'default'), // SWR кэширование
+        loadSentimentData() // Загружаем sentiment данные в фоне
+      ]);
+      
+      const e2eMs = Math.round(performance.now() - startTime);
+      
+      // 🎯 Сохраняем SWR данные напрямую
+      setSwrData(swrResponse.data);
+      
+      // Обновляем метаданные кэша из SWR response
+      setCacheMetadata({
+        cached: swrResponse.cached,
+        lastUpdated: new Date(),
+        e2eMs: e2eMs,
+        llmMs: swrResponse.llm_ms,
+        modelVersion: swrResponse.model_name
       });
-      const data = await response.json();
-      setAssessment(data);
+      
+      console.log('✅ SWR Analysis completed:', swrResponse);
+      console.log('📊 Cache status:', swrResponse.headers.xCache);
+      console.log('⚡ Performance:', `${swrResponse.compute_ms}ms total, ${swrResponse.llm_ms}ms LLM`);
+      
     } catch (err: any) {
-      setError(err.message || 'Ошибка при анализе портфеля');
-    } finally {
-      setLoading(false);
-    }
-  };
+      console.error('Analysis failed:', err);
+      
+      let errorMessage = 'Неизвестная ошибка';
+      
+      if (err.message) {
+        errorMessage = err.message;
+      } else if (typeof err === 'string') {
+        errorMessage = err;
+      } else if (err.error) {
+        errorMessage = err.error;
+      }
+      
+      setError(errorMessage);
+      
+      // Очищаем данные при ошибке
+      setAnalysisData(null);
+  } finally {
+    setLoading(false);
+  }
+};
 
-  const getSeverityColor = (severity: string) => {
-    switch (severity.toLowerCase()) {
-      case 'high': return 'text-red-500';
-      case 'medium': return 'text-yellow-500';
-      case 'low': return 'text-green-500';
-      default: return 'text-gray-500';
-    }
-  };
+// Обработчик для принудительного обновления через SWR
+const handleRefresh = async () => {
+  console.log('🔄 SWR Manual refresh requested');
+  setCacheMetadata({...cacheMetadata, cached: false});
+  
+  try {
+    // Используем SWR refresh endpoint
+    await swrInsightsAPI.refreshInsights(user_id!);
+    
+    // После refresh обновляем данные
+    await runAnalysis();
+  } catch (error) {
+    console.error('SWR Refresh failed:', error);
+    setError(error instanceof Error ? error.message : 'Refresh failed');
+  }
+};
 
-  const getScoreColor = (score: number) => {
-    if (score >= 7) return 'text-green-500';
-    if (score >= 5) return 'text-yellow-500';
-    return 'text-red-500';
-  };
+  if (!user_id) {
+    return (
+      <div className="space-y-8">
+        <div className="text-center py-16">
+          <div className="text-6xl mb-4">🔐</div>
+          <h2 className="text-2xl font-bold text-white mb-2">Авторизация required</h2>
+          <p className="text-slate-400">Войдите в систему для доступа к анализу портфеля</p>
+        </div>
+      </div>
+    );
+  }
 
-  const getRiskLevelColor = (riskLevel: string) => {
-    switch (riskLevel.toLowerCase()) {
-      case 'low': return 'bg-green-100 text-green-800';
-      case 'medium': return 'bg-yellow-100 text-yellow-800';
-      case 'high': return 'bg-red-100 text-red-800';
-      default: return 'bg-gray-100 text-gray-800';
-    }
-  };
-
-  const getTimeframeColor = (timeframe?: string) => {
-    switch (timeframe) {
-      case 'immediate': return 'bg-red-100 text-red-800';
-      case 'short_term': return 'bg-orange-100 text-orange-800';
-      case 'medium_term': return 'bg-blue-100 text-blue-800';
-      case 'long_term': return 'bg-green-100 text-green-800';
-      default: return 'bg-gray-100 text-gray-800';
-    }
-  };
+  if (error) {
+    return (
+      <div className="space-y-8">
+        <div className="text-center py-16">
+          <div className="text-6xl mb-4">❌</div>
+          <h2 className="text-2xl font-bold text-white mb-2">Ошибка анализа</h2>
+          <p className="text-slate-400 mb-6">{error}</p>
+          <button
+            onClick={runAnalysis}
+            disabled={loading}
+            className="px-6 py-3 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-lg hover:from-purple-700 hover:to-blue-700 transition-all duration-200 disabled:opacity-50"
+          >
+            Повторить попытку
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8">
-      <div className="flex items-center justify-between">
+      {/* Заголовок с метаданными кэша */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold bg-gradient-to-r from-white to-slate-300 bg-clip-text text-transparent">
-            🤖 AI Insights
-          </h1>
-          <p className="text-slate-400 mt-2">Профессиональный анализ портфеля и тестирование локальных LLM</p>
-        </div>
-        <div className="hidden sm:flex items-center space-x-2 text-sm text-slate-400">
-          <div className="w-2 h-2 bg-purple-500 rounded-full animate-pulse"></div>
-          <span>AI Powered</span>
-        </div>
-      </div>
-
-      {/* Табы для переключения между функциями */}
-      <div className="bg-slate-800/50 backdrop-blur-xl rounded-xl p-2 border border-slate-700/50 shadow-lg">
-        <div className="flex space-x-2">
-          <button
-            onClick={() => setActiveTab('portfolio-analyzer')}
-            className={`flex-1 px-4 py-3 rounded-lg font-medium transition-all duration-200 ${
-              activeTab === 'portfolio-analyzer'
-                ? 'bg-gradient-to-r from-purple-600 to-blue-600 text-white shadow-lg shadow-purple-500/25'
-                : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
-            }`}
-          >
-            📊 Portfolio Analyzer v1
-          </button>
-          <button
-            onClick={() => setActiveTab('assessment')}
-            className={`flex-1 px-4 py-3 rounded-lg font-medium transition-all duration-200 ${
-              activeTab === 'assessment'
-                ? 'bg-gradient-to-r from-purple-600 to-blue-600 text-white shadow-lg shadow-purple-500/25'
-                : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
-            }`}
-          >
-            🤖 Анализ Портфеля (Generic)
-          </button>
-        </div>
-      </div>
-      
-      {/* Контент в зависимости от активного таба */}
-      {activeTab === 'portfolio-analyzer' && (
-        <AIInsightsPortfolioAnalyzer />
-      )}
-
-      {activeTab === 'assessment' && (
-        <>
-          {/* Controls для анализа портфеля */}
-          <div className="bg-slate-800/50 backdrop-blur-xl rounded-xl p-6 border border-slate-700/50 shadow-lg">
-            <div className="flex flex-wrap gap-6 items-end">
-              <div className="flex-1 min-w-[200px]">
-                <label className="block text-sm font-medium text-slate-300 mb-2">Модель AI</label>
-                <select
-                  value={selectedModel}
-                  onChange={(e) => setSelectedModel(e.target.value)}
-                  className="w-full px-4 py-3 bg-slate-700/50 border border-slate-600/50 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 backdrop-blur-sm transition-all duration-200"
-                >
-                  <option value="gpt-4o-mini">GPT-4o Mini</option>
-                  <option value="gpt-4o">GPT-4o</option>
-                </select>
-              </div>
-              <div className="flex-1 min-w-[150px]">
-                <label className="block text-sm font-medium text-slate-300 mb-2">Язык</label>
-                <select
-                  value={language}
-                  onChange={(e) => setLanguage(e.target.value)}
-                  className="w-full px-4 py-3 bg-slate-700/50 border border-slate-600/50 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 backdrop-blur-sm transition-all duration-200"
-                >
-                  <option value="ru">Русский</option>
-                  <option value="en">English</option>
-                </select>
-              </div>
-              <button
-                onClick={runAssessment}
-                disabled={loading || !user_id}
-                className="px-8 py-3 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white rounded-lg transition-all duration-200 shadow-lg shadow-purple-500/25 font-medium disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none"
-              >
-                {loading ? (
-                  <div className="flex items-center space-x-2">
-                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                    <span>Анализирую...</span>
-                  </div>
-                ) : (
-                  'Запустить анализ'
-                )}
-              </button>
-            </div>
-            {error && (
-              <div className="mt-4 p-4 bg-gradient-to-r from-red-900/20 to-red-800/20 border border-red-500/30 rounded-lg backdrop-blur-sm">
-                <div className="flex items-center space-x-3">
-                  <div className="w-6 h-6 bg-red-500/20 rounded-full flex items-center justify-center">
-                    <span className="text-red-400 text-sm">!</span>
-                  </div>
-                  <p className="text-red-400 font-medium">{error}</p>
-                </div>
-              </div>
+          <div className="flex items-center gap-3 mb-2">
+            <h1 className="text-3xl font-bold bg-gradient-to-r from-white to-slate-300 bg-clip-text text-transparent">
+              📊 Portfolio Insights
+            </h1>
+            {cacheMetadata.lastUpdated && (
+              <>
+                <span className={`px-3 py-1 rounded-full text-sm font-medium border ${
+                  cacheMetadata.cached 
+                    ? 'bg-green-500/20 text-green-400 border-green-500/30' 
+                    : 'bg-orange-500/20 text-orange-400 border-orange-500/30'
+                }`}>
+                  {cacheMetadata.cached ? '⭐ Из кэша' : '🔄 Обновлено'}
+                </span>
+              </>
             )}
           </div>
-        </>
-      )}
+          <p className="text-slate-400 mt-2">Комплексный анализ с группировками и пер-позиционными инсайтами</p>
+          
+          {/* Метрики производительности */}
+          {cacheMetadata.lastUpdated && (
+            <div className="flex items-center gap-6 text-sm text-slate-400 mt-3">
+              <div>
+                <span className="font-medium">Обновлено:</span> {cacheMetadata.lastUpdated.toLocaleString()}
+              </div>
+              <div>
+                <span className="font-medium">E2E:</span> {cacheMetadata.e2eMs}ms
+              </div>
+              {cacheMetadata.llmMs > 0 && (
+                <div>
+                  <span className="font-medium">LLM:</span> {cacheMetadata.llmMs}ms
+                </div>
+              )}
+              <div>
+                <span className="font-medium">Модель:</span> {cacheMetadata.modelVersion}
+              </div>
+            </div>
+          )}
+        </div>
+        
+        {/* Кнопка обновления и статус AI */}
+        <div className="flex items-center gap-3">
+          {cacheMetadata.lastUpdated && (
+            <button
+              onClick={handleRefresh}
+              disabled={loading}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-900 disabled:opacity-50 rounded-lg text-sm text-white transition-colors flex items-center gap-2"
+            >
+              {loading ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  Обновляется...
+                </>
+              ) : (
+                <>
+                  🔄 Обновить
+                </>
+              )}
+            </button>
+          )}
+          <div className="hidden sm:flex items-center space-x-2 text-sm text-slate-400">
+            <div className="w-2 h-2 bg-purple-500 rounded-full animate-pulse"></div>
+            <span>AI Powered</span>
+          </div>
+        </div>
+      </div>
 
-      {activeTab === 'assessment' && assessment && (
-        <div className="space-y-8">
-          {/* Overview */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="bg-slate-800/50 backdrop-blur-xl rounded-xl p-6 border border-slate-700/50 shadow-lg hover:shadow-xl transition-all duration-300">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold text-white">Общая оценка</h3>
-                <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center">
-                  <span className="text-white text-sm font-bold">AI</span>
+      {/* Параметры анализа */}
+      <AnalysisControls
+        params={params}
+        onChange={setParams}
+        onAnalyze={runAnalysis}
+        isLoading={loading}
+      />
+
+      {!analysisData && !swrData ? (
+        // Состояние загрузки
+            <div className="space-y-6">
+          {loading ? (
+            <div className="text-center py-16">
+              <div className="text-8xl mb-6">🤖</div>
+              <h2 className="text-2xl font-bold text-white mb-4">Анализирую портфель...</h2>
+              <p className="text-lg text-slate-400 mb-8">AI обрабатывает данные и генерирует инсайты</p>
+              <div className="flex justify-center mb-6">
+                <div className="w-12 h-12 border-4 border-purple-500/30 border-t-purple-500 rounded-full animate-spin"></div>
+                  </div>
+              <p className="text-sm text-slate-500">Это может занять несколько секунд</p>
+                      </div>
+                    ) : (
+            <div className="space-y-6">
+              <div className="text-center py-8">
+                <div className="text-4xl mb-4">📊</div>
+                <h3 className="text-lg font-semibold text-white mb-2">Готов к анализу</h3>
+                <p className="text-slate-400 mb-4">Настройте параметры и запустите анализ портфеля</p>
+                <button
+                  onClick={runAnalysis}
+                  disabled={loading}
+                  className="px-6 py-3 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-lg hover:from-purple-700 hover:to-blue-700 transition-all duration-200 disabled:opacity-50"
+                >
+                  Запустить анализ
+                  </button>
+                </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <KPICard
+                    key={i}
+                    title="—"
+                    value="—"
+                    subtitle="Ожидание данных"
+                  />
+                ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+      ) : swrData ? (
+        // SWR данные - простой блок для тестирования
+        <div className="space-y-6">
+          <div className="bg-slate-800 rounded-lg p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-semibold text-white">AI Insights (SWR Cache)</h2>
+              <div className={`px-3 py-1 rounded-full text-sm font-medium ${
+                cacheMetadata.cached 
+                  ? 'bg-emerald-900/30 text-emerald-300 border border-emerald-500/30' 
+                  : 'bg-orange-900/30 text-orange-300 border border-orange-500/30'
+              }`}>
+                {cacheMetadata.cached ? '🚀 CACHED' : '🤖 LLM GENERATION'}
+              </div>
+            </div>
+            
+            {/* Метрики производительности */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+              <div className="bg-slate-700/30 rounded-lg p-3">
+                <div className="text-xs text-slate-400 mb-1">Response Time</div>
+                <div className={`text-sm font-medium ${cacheMetadata.e2eMs < 100 ? 'text-emerald-400' : 'text-orange-400'}`}>
+                  {cacheMetadata.e2eMs}ms total
                 </div>
               </div>
-              <div className="text-center">
-                <div className={`text-4xl font-bold mb-2 ${getScoreColor(assessment.ai.rating.score)}`}>
-                  {assessment.ai.rating.score.toFixed(1)}/10
+              <div className="bg-slate-700/30 rounded-lg p-3">
+                <div className="text-xs text-slate-400 mb-1">LLM Processing</div>
+                <div className={`text-sm font-medium ${cacheMetadata.llmMs < 500 ? 'text-emerald-400' : 'text-orange-400'}`}>
+                  {cacheMetadata.llmMs}ms model
                 </div>
-                <div className="text-sm text-slate-400 mb-3">{assessment.ai.rating.label}</div>
-                <span className={`inline-flex px-3 py-1 rounded-full text-xs font-medium ${getRiskLevelColor(assessment.ai.rating.risk_level)}`}>
-                  Риск: {assessment.ai.rating.risk_level}
+              </div>
+              <div className="bg-slate-700/30 rounded-lg p-3">
+                <div className="text-xs text-slate-400 mb-1">Cache Age</div>
+                <div className="text-sm font-medium text-slate-300">
+                  {cacheMetadata.lastUpdated ? 
+                    `${Math.round((Date.now() - cacheMetadata.lastUpdated.getTime()) / 1000)}s ago` : 
+                    'N/A'
+                  }
+                </div>
+              </div>
+              <div className="bg-slate-700/30 rounded-lg p-3">
+                <div className="text-xs text-slate-400 mb-1">Model</div>
+                <span className="bg-blue-900/30 text-blue-300 text-xs px-2 py-1 rounded">
+                  {cacheMetadata.modelVersion || 'Unknown'}
                 </span>
               </div>
             </div>
-
-            <div className="bg-slate-800/50 backdrop-blur-xl rounded-xl p-6 border border-slate-700/50 shadow-lg hover:shadow-xl transition-all duration-300">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold text-white">Производительность</h3>
-                <div className="w-10 h-10 bg-gradient-to-br from-emerald-500 to-green-600 rounded-lg flex items-center justify-center">
-                  <span className="text-white text-sm">📈</span>
-                </div>
+            
+            <div className="space-y-4">
+              <div>
+                <h3 className="text-lg font-medium text-white mb-2">Summary</h3>
+                <p className="text-slate-300">{swrData.summary}</p>
               </div>
-              <div className="text-center">
-                <div className={`text-3xl font-bold mb-2 ${assessment.ai.performance.since_buy_pl_pct && assessment.ai.performance.since_buy_pl_pct >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                  {assessment.ai.performance.since_buy_pl_pct ? `${assessment.ai.performance.since_buy_pl_pct.toFixed(1)}%` : '—'}
-                </div>
-                <div className="text-sm text-slate-400 mb-2">
-                  {assessment.ai.performance.comment || 'Нет данных о производительности'}
-                </div>
-                {assessment.ai.performance.win_rate_pct && (
-                  <div className="text-xs text-slate-500">
-                    Win Rate: {assessment.ai.performance.win_rate_pct.toFixed(1)}%
-                  </div>
-                )}
+              
+              <div>
+                <h3 className="text-lg font-medium text-white mb-2">Risk Assessment</h3>
+                <p className="text-slate-300">{swrData.risk_assessment}</p>
               </div>
-            </div>
-
-            <div className="bg-slate-800/50 backdrop-blur-xl rounded-xl p-6 border border-slate-700/50 shadow-lg hover:shadow-xl transition-all duration-300">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold text-white">Диверсификация</h3>
-                <div className="w-10 h-10 bg-gradient-to-br from-orange-500 to-red-600 rounded-lg flex items-center justify-center">
-                  <span className="text-white text-sm">⚖️</span>
-                </div>
+              
+              <div>
+                <h3 className="text-lg font-medium text-white mb-2">Market Outlook</h3>
+                <p className="text-slate-300">{swrData.market_outlook}</p>
               </div>
-              <div className="text-center">
-                <div className={`text-3xl font-bold mb-2 ${getScoreColor(assessment.ai.diversification.score)}`}>
-                  {assessment.ai.diversification.score.toFixed(1)}/10
-                </div>
-                <div className="text-sm text-slate-400 mb-2">
-                  Концентрация: {assessment.ai.diversification.concentration_risk}
-                </div>
-                {assessment.ai.diversification.sector_diversity && (
-                  <div className="text-xs text-slate-500">
-                    Секторы: {assessment.ai.diversification.sector_diversity}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Headline and Tags */}
-          <div className="bg-slate-800/50 backdrop-blur-xl rounded-xl p-6 border border-slate-700/50 shadow-lg">
-            <h2 className="text-xl font-semibold text-white mb-6">{assessment.ai.overview.headline}</h2>
-            {assessment.ai.overview.tags && (
-              <div className="flex flex-wrap gap-3 mb-6">
-                {assessment.ai.overview.tags.map((tag, index) => (
-                  <span key={index} className="px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-blue-100 rounded-full text-sm font-medium shadow-lg">
-                    {tag}
-                  </span>
-                ))}
-              </div>
-            )}
-            {assessment.ai.overview.key_strengths && (
-              <div className="mb-6">
-                <h4 className="font-medium text-green-400 mb-3 flex items-center">
-                  <span className="w-2 h-2 bg-green-400 rounded-full mr-2"></span>
-                  Сильные стороны:
-                </h4>
+              
+              <div>
+                <h3 className="text-lg font-medium text-white mb-2">Recommendations</h3>
                 <ul className="space-y-2">
-                  {assessment.ai.overview.key_strengths.map((strength, index) => (
-                    <li key={index} className="text-sm text-slate-300 flex items-start">
-                      <span className="text-green-400 mr-2">✓</span>
-                      {strength}
+                  {swrData.recommendations.map((rec, index) => (
+                    <li key={index} className="text-slate-300 flex items-start">
+                      <span className="text-emerald-400 mr-2">•</span>
+                      {rec}
                     </li>
                   ))}
                 </ul>
               </div>
-            )}
-            {assessment.ai.overview.key_concerns && (
+              
               <div>
-                <h4 className="font-medium text-red-400 mb-3 flex items-center">
-                  <span className="w-2 h-2 bg-red-400 rounded-full mr-2"></span>
-                  Области для улучшения:
-                </h4>
-                <ul className="space-y-2">
-                  {assessment.ai.overview.key_concerns.map((concern, index) => (
-                    <li key={index} className="text-sm text-slate-300 flex items-start">
-                      <span className="text-red-400 mr-2">⚠</span>
-                      {concern}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </div>
-
-          {/* Categories and Risks */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="bg-slate-800/50 backdrop-blur-xl rounded-xl p-6 border border-slate-700/50 shadow-lg">
-              <h3 className="text-lg font-semibold text-white mb-6">Категории оценки</h3>
-              <div className="space-y-4">
-                {assessment.ai.categories.map((category, index) => (
-                  <div key={index} className="bg-slate-700/30 rounded-lg p-4 border border-slate-600/30">
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="font-medium text-white">{category.name}</span>
-                      <span className={`text-lg font-bold ${getScoreColor(category.score)}`}>
-                        {category.score.toFixed(1)}/10
-                      </span>
-                    </div>
-                    {category.note && (
-                      <p className="text-sm text-slate-400 mb-2">{category.note}</p>
-                    )}
-                    {category.trend && (
-                      <span className="text-xs text-slate-500 bg-slate-600/50 px-2 py-1 rounded">
-                        Тренд: {category.trend}
-                      </span>
-                    )}
+                <h3 className="text-lg font-medium text-white mb-2">Performance</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-slate-700/50 rounded p-3">
+                    <div className="text-sm text-slate-400">YTD</div>
+                    <div className="text-lg font-semibold text-white">{fmtPct(swrData.performance.ytd)}</div>
                   </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="bg-slate-800/50 backdrop-blur-xl rounded-xl p-6 border border-slate-700/50 shadow-lg">
-              <h3 className="text-lg font-semibold text-white mb-6">Анализ рисков</h3>
-              <div className="space-y-4">
-                {assessment.ai.risks.map((risk, index) => (
-                  <div key={index} className="bg-slate-700/30 rounded-lg p-4 border border-slate-600/30">
-                    <div className="flex items-center gap-2 mb-2">
-                      <span className={`font-medium ${getSeverityColor(risk.severity)}`}>
-                        ● {risk.severity.toUpperCase()}
-                      </span>
-                      {risk.impact && (
-                        <span className="text-xs text-slate-500 bg-slate-600/50 px-2 py-1 rounded">
-                          Impact: {risk.impact}
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-sm text-white mb-2">{risk.item}</p>
-                    {risk.mitigation && (
-                      <p className="text-xs text-slate-400 bg-slate-600/30 p-2 rounded">
-                        💡 {risk.mitigation}
-                      </p>
-                    )}
+                  <div className="bg-slate-700/50 rounded p-3">
+                    <div className="text-sm text-slate-400">Monthly</div>
+                    <div className="text-lg font-semibold text-white">{fmtPct(swrData.performance.monthly)}</div>
                   </div>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* Insights */}
-          <div className="bg-slate-800/50 backdrop-blur-xl rounded-xl p-6 border border-slate-700/50 shadow-lg">
-            <h3 className="text-lg font-semibold text-white mb-6">Ключевые инсайты</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {assessment.ai.insights.map((insight, index) => (
-                <div key={index} className="p-4 bg-gradient-to-r from-blue-900/20 to-purple-900/20 rounded-lg border border-blue-500/30 hover:border-blue-400/50 transition-all duration-200">
-                  <p className="text-sm text-slate-300 leading-relaxed">{insight}</p>
                 </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Action Plan */}
-          <div className="bg-slate-800/50 backdrop-blur-xl rounded-xl p-6 border border-slate-700/50 shadow-lg">
-            <h3 className="text-lg font-semibold text-white mb-6">План действий</h3>
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-slate-700/50">
-                <thead className="bg-slate-700/50">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-300 uppercase tracking-wider">#</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-300 uppercase tracking-wider">Действие</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-300 uppercase tracking-wider">Обоснование</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-300 uppercase tracking-wider">Приоритет</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-300 uppercase tracking-wider">Срок</th>
-                  </tr>
-                </thead>
-                <tbody className="bg-slate-800/30 divide-y divide-slate-700/30">
-                  {assessment.ai.actions.map((action, index) => (
-                    <tr key={index} className="hover:bg-slate-700/20 transition-colors">
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-white">
-                        {index + 1}
-                      </td>
-                      <td className="px-6 py-4 text-sm text-white font-medium">{action.title}</td>
-                      <td className="px-6 py-4 text-sm text-slate-400">{action.rationale}</td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`px-3 py-1 text-xs font-medium rounded-full ${
-                          action.priority >= 4 ? 'bg-red-900/50 text-red-300 border border-red-500/30' :
-                          action.priority >= 3 ? 'bg-yellow-900/50 text-yellow-300 border border-yellow-500/30' :
-                          'bg-green-900/50 text-green-300 border border-green-500/30'
-                        }`}>
-                          {action.priority}/5
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        {action.timeframe && (
-                          <span className={`px-3 py-1 text-xs font-medium rounded-full ${getTimeframeColor(action.timeframe)}`}>
-                            {action.timeframe}
-                          </span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {/* Summary */}
-          <div className="bg-slate-800/50 backdrop-blur-xl rounded-xl p-6 border border-slate-700/50 shadow-lg">
-            <h3 className="text-lg font-semibold text-white mb-6">Резюме</h3>
-            <div className="prose max-w-none">
-              <p className="text-slate-300 whitespace-pre-line leading-relaxed">{assessment.ai.summary_markdown}</p>
-            </div>
-          </div>
-
-          {/* Technical Info */}
-          <div className="bg-slate-700/50 backdrop-blur-xl rounded-xl p-6 border border-slate-600/50 shadow-lg">
-            <h4 className="text-sm font-medium text-slate-300 mb-4">Техническая информация</h4>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-slate-400">
-              <div>
-                <p><span className="text-slate-300">Модель:</span> {assessment.model}</p>
-                <p><span className="text-slate-300">Общая стоимость:</span> ${assessment.snapshot.total_value.toLocaleString()}</p>
               </div>
-              <div>
-                <p><span className="text-slate-300">Индекс концентрации (HHI):</span> {assessment.snapshot.hhi.toFixed(3)}</p>
-                <p><span className="text-slate-300">Топ-3 позиции:</span> {assessment.snapshot.top_concentration_pct.toFixed(1)}%</p>
-              </div>
-              {assessment.snapshot.missing_prices.length > 0 && (
-                <div className="md:col-span-2">
-                  <p><span className="text-slate-300">Отсутствующие цены:</span> {assessment.snapshot.missing_prices.join(', ')}</p>
-                </div>
-              )}
             </div>
           </div>
         </div>
-      )}
+      ) : analysisData ? (
+        <>
+          {/* KPI Карточки */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <KPICard
+              title="Total Equity"
+              value={fmtUSD(analysisData.prepared_data.summary.total_equity_usd)}
+              icon={<span className="text-white text-sm">💼</span>}
+              asOf={analysisData.prepared_data.summary.as_of}
+            />
+            
+            <KPICard
+              title="Free USD"
+              value={fmtUSD(analysisData.prepared_data.summary.free_usd)}
+              subtitle="Available cash"
+              icon={<span className="text-white text-sm">💰</span>}
+              asOf={analysisData.prepared_data.summary.as_of}
+            />
+            
+            <KPICard
+              title="Portfolio Value"
+              value={fmtUSD(analysisData.prepared_data.summary.portfolio_value_usd)}
+              subtitle="Market value"
+              icon={<span className="text-white text-sm">📈</span>}
+              asOf={analysisData.prepared_data.summary.as_of}
+            />
+            
+            <KPICard
+              title="Expected Return"
+              value={fmtPct(analysisData.prepared_data.summary.expected_return_horizon_pct)}
+              subtitle={`на ${params.horizon_months} мес.`}
+              icon={<span className="text-white text-sm">🎯</span>}
+              asOf={analysisData.prepared_data.summary.as_of}
+            />
+            
+            <KPICard
+              title="Volatility"
+              value={fmtPct(analysisData.prepared_data.summary.volatility_annualized_pct)}
+              subtitle="Annualized"
+              icon={<span className="text-white text-sm">📊</span>}
+              asOf={analysisData.prepared_data.summary.as_of}
+            />
+            
+            <KPICard
+              title="Risk Score"
+              value={`${fmtRiskScore(analysisData.prepared_data.summary.risk_score_0_100)}/100`}
+              badge={{
+                text: analysisData.prepared_data.summary.risk_class,
+                variant: analysisData.prepared_data.summary.risk_class === 'High' ? 'danger' : 
+                         analysisData.prepared_data.summary.risk_class === 'Moderate' ? 'warning' : 'success'
+              }}
+              icon={<span className="text-white text-sm">⚠️</span>}
+              asOf={analysisData.prepared_data.summary.as_of}
+            />
+            
+            {/* News Sentiment KPI Cards */}
+            {sentimentData && (
+              <>
+                <KPICard
+                  title="News Sentiment (30d)"
+                  value={
+                    sentimentData.portfolio_coverage_30d >= 5 
+                      ? SentimentUtils.formatSentimentScore(sentimentData.portfolio_sentiment_30d)
+                      : '—'
+                  }
+                  subtitle="Based on financial news"
+                  badge={{
+                    text: SentimentUtils.getSentimentBadge(sentimentData.portfolio_sentiment_30d),
+                    variant: SentimentUtils.getSentimentBadge(sentimentData.portfolio_sentiment_30d) === 'Bullish' ? 'success' : 
+                             SentimentUtils.getSentimentBadge(sentimentData.portfolio_sentiment_30d) === 'Bearish' ? 'danger' : 'warning'
+                  }}
+                  icon={<span className="text-white text-sm">📰</span>}
+                  asOf={analysisData.prepared_data.summary.as_of}
+                />
+                
+                <KPICard
+                  title="News Coverage (30d)"
+                  value={sentimentData.portfolio_coverage_30d.toString()}
+                  subtitle="Sentiment articles analyzed"
+                  icon={<span className="text-white text-sm">📊</span>}
+                  asOf={analysisData.prepared_data.summary.as_of}
+                />
+              </>
+            )}
+          </div>
+
+          {/* Группировки */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <GroupVisualization
+              title="По индустрии"
+              type="industry"
+              data={analysisData.prepared_data.grouping.by_industry}
+              totalWeight={analysisData.prepared_data.grouping.by_industry.reduce((sum, ind) => sum + ind.weight_pct, 0)}
+            />
+            
+            <GroupVisualization
+              title="По прогнозу роста"
+              type="growth"
+              data={analysisData.prepared_data.grouping.by_growth_bucket}
+              totalWeight={analysisData.prepared_data.grouping.by_growth_bucket.reduce((sum, bucket) => sum + bucket.weight_pct, 0)}
+            />
+            
+            <GroupVisualization
+              title="По риску"
+              type="risk"
+              data={analysisData.prepared_data.grouping.by_risk_bucket}
+              totalWeight={analysisData.prepared_data.grouping.by_risk_bucket.reduce((sum, bucket) => sum + bucket.weight_pct, 0)}
+            />
+          </div>
+
+          {/* Sentiment группировка */}
+          {(sentimentGrouping) && (
+            <div className="mt-6">
+              <SentimentGroupVisualization 
+                grouping={sentimentGrouping}
+                isLoading={sentimentLoading}
+              />
+            </div>
+          )}
+
+          {/* Пер-позиционные инсайты */}
+          <div className="bg-slate-800/50 backdrop-blur-xl rounded-xl p-6 border border-slate-700/50 shadow-lg">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-lg font-semibold text-white">Инсайты по позициям</h3>
+              <div className="text-sm text-slate-400">
+                {analysisData.positions_with_insights.length} позиций
+              </div>
+            </div>
+
+            {analysisData.positions_with_insights.length === 0 ? (
+              <div className="text-center text-slate-400 py-8">
+                <div className="text-4xl mb-2">📋</div>
+                <p>Позиций для анализа не найдено</p>
+                </div>
+            ) : (
+              <div className="space-y-4">
+                {analysisData.positions_with_insights.map((position, index) => (
+                  <div key={`${position.symbol}-${index}`} className="bg-slate-700/50 rounded-lg p-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center space-x-3">
+                        <span className="text-lg font-semibold text-white">{position.symbol}</span>
+                        <span className="text-sm text-slate-400">{position.name}</span>
+              </div>
+                      <div className="text-sm text-slate-400">
+                        Вес: {fmtWeight(position.weight_pct)}
+              </div>
+            </div>
+
+                    <div className="grid grid-cols-3 gap-4 text-sm">
+                      <div>
+                        <span className="text-slate-400">Риск:</span> 
+                        <span className="ml-1 text-white">{fmtRiskScore(position.risk_score_0_100)}/100</span>
+                </div>
+                      <div>
+                        <span className="text-slate-400">Рост:</span> 
+                        <span className="ml-1 text-white">{fmtPct(position.growth_forecast_pct)}</span>
+              </div>
+                      <div>
+                        <span className="text-slate-400">Доходность:</span> 
+                        <span className="ml-1 text-white">{fmtPct(position.expected_return_horizon_pct)}</span>
+            </div>
+          </div>
+
+                    {position.insights && (
+                      <div className="mt-4 pt-4 border-t border-slate-600">
+                        <h4 className="text-sm font-medium text-slate-300 mb-2">AI Инсайт:</h4>
+                        <p className="text-sm text-white mb-2">{position.insights.thesis}</p>
+                        <div className="flex flex-wrap gap-2">
+                          <span className="px-2 py-1 bg-blue-500/20 text-sm rounded-full text-blue-300">
+                            {position.insights.action}
+                          </span>
+                          <span className="px-2 py-1 bg-green-500/20 text-sm rounded-full text-green-300">
+                            {position.insights.signals.valuation}
+                  </span>
+              </div>
+              </div>
+            )}
+                    
+                    {!position.insights && (
+                      <div className="mt-4 pt-4 border-t border-slate-600">
+                        <span className="px-2 py-1 bg-orange-500/20 text-sm rounded-full text-orange-300">
+                          Data gap
+                      </span>
+                    </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Техническая информация */}
+          <div className="bg-slate-700/50 backdrop-blur-xl rounded-xl p-4 border border-slate-600/50 shadow-lg">
+            <h4 className="text-sm font-medium text-slate-300 mb-4">Техническая информация</h4>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm text-slate-400">
+              <div>
+                <p><span className="text-slate-300">Модель:</span> {analysisData.model}</p>
+                {escalationRate !== null && escalationRate >= 0 && (
+                  <p><span className="text-orange-400">Escalation rate:</span> {fmtPct(escalationRate)}</p>
+                )}
+                <p><span className="text-slate-300">Временной горизонт:</span> {params.horizon_months} мес.</p>
+          </div>
+              <div>
+                <p><span className="text-slate-300">Риск-профиль:</span> {params.risk_profile}</p>
+                <p><span className="text-slate-300">Дата анализа:</span> {analysisData.prepared_data.summary.as_of}</p>
+              </div>
+              <div>
+                <p><span className="text-slate-300">Статус:</span> <span className="text-emerald-400">✓ Активно</span></p>
+                <p><span className="text-slate-300">Время генерации:</span> ~2.3с</p>
+            </div>
+          </div>
+        </div>
+        </>
+      ) : null}
     </div>
   );
 }

@@ -10,7 +10,7 @@ from sqlalchemy import text
 from app.core.config import settings
 from app.database import SessionLocal
 from app.services.price_eod import PriceEODRepository
-from app.quotes.stooq import fetch_eod, StooqFetchError
+from app.services.price_service import load_price_for_symbol
 
 logger = logging.getLogger(__name__)
 
@@ -219,26 +219,29 @@ def _fetch_symbol_with_retries(
         try:
             logger.debug(f"Fetching {symbol} (attempt {attempt + 1}/{retry_attempts})")
             
-            # Fetch data from Stooq
-            price_data = fetch_eod(symbol)
+            # Fetch data using price service
+            logger.info("eod_task_fetch", extra={"symbol": symbol, "client": "price_service", "func": "load_price_for_symbol"})
+            success = load_price_for_symbol(symbol, db)
             
-            if not price_data:
-                logger.warning(f"No data returned for {symbol}")
+            if not success:
+                logger.warning(f"Failed to load price for {symbol}")
                 return 0
             
-            # Upsert data
-            inserted_count = repository.upsert_prices(symbol, price_data)
+            # Get the inserted count from repository
+            repository = PriceEODRepository(db)
+            latest_price = repository.get_latest_price(symbol)
             
-            # Log success with last date
-            if price_data:
-                last_date = max(row["date"] for row in price_data)
-                logger.info(f"Successfully processed {symbol}: {inserted_count} rows, last date: {last_date}")
-            else:
-                logger.info(f"Successfully processed {symbol}: {inserted_count} rows")
+            # Log success
+            logger.info("eod_task_success", extra={
+                "symbol": symbol, 
+                "success": success,
+                "last_date": latest_price.date if latest_price else None,
+                "client": "price_service"
+            })
             
-            return inserted_count
+            return 1 if success else 0
             
-        except StooqFetchError as e:
+        except Exception as e:
             last_exception = e
             logger.warning(f"Attempt {attempt + 1} failed for {symbol}: {e}")
             

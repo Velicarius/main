@@ -71,18 +71,20 @@ def build_snapshot(db: Session, user_id: UUID) -> PortfolioSnapshot:
             value = qty * close
             total += value
 
-        pl_abs = (value - (qty * buy)) if (buy is not None) else None
-        pl_pct = ((pl_abs / (qty * buy)) * 100.0) if (pl_abs is not None and buy and qty > 0) else None
+        # Use market price as buy price if buy_price is null (for onboarding positions)
+        effective_buy = buy if buy is not None else close
+        pl_abs = (value - (qty * effective_buy)) if (effective_buy is not None) else None
+        pl_pct = ((pl_abs / (qty * effective_buy)) * 100.0) if (pl_abs is not None and effective_buy and qty > 0) else None
 
-        if buy is not None and close is not None:
-            cost_sum += qty * buy
+        if effective_buy is not None and close is not None:
+            cost_sum += qty * effective_buy
             value_sum_for_cost += value
 
         tmp.append(
             dict(
                 symbol=sym,
                 qty=qty,
-                buy=buy,
+                buy=effective_buy,  # Use effective buy price
                 close=close,
                 value=value,
                 pl_abs=pl_abs,

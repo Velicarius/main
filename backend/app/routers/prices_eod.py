@@ -82,6 +82,19 @@ async def get_latest_price(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/symbols", response_model=List[str])
+async def get_symbols(
+    db: Session = Depends(get_db)
+):
+    """Get all symbols that have price data"""
+    try:
+        repository = PriceEODRepository(db)
+        symbols = repository.get_symbols()
+        return symbols
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.delete("/{symbol}", response_model=dict)
 async def delete_prices(
     symbol: str,

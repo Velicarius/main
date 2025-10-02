@@ -4,7 +4,9 @@ import Layout from './components/Layout';
 import Auth from './pages/Auth';
 import Dashboard from './pages/Dashboard';
 import Positions from './pages/Positions';
+// import InsightsOptimized from './pages/InsightsOptimized'; // DEPRECATED - use unified insights
 import Insights from './pages/Insights';
+import UnifiedInsights from './pages/UnifiedInsights';
 import Settings from './pages/Settings';
 
 // Protected Route component
@@ -40,11 +42,18 @@ function App() {
                   <Positions />
                 </ProtectedRoute>
               } />
-              <Route path="/insights" element={
+            <Route path="/insights" element={
                 <ProtectedRoute>
-                  <Insights />
+                  <Insights /> 
                 </ProtectedRoute>
               } />
+              <Route path="/insights-unified" element={
+                <ProtectedRoute>
+                  <UnifiedInsights />
+                </ProtectedRoute>
+              } />
+              {/* Redirect old URL to new one */}
+              <Route path="/insights-v2" element={<Navigate to="/insights" replace />} />
               <Route path="/settings" element={
                 <ProtectedRoute>
                   <Settings />

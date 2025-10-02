@@ -68,12 +68,14 @@ def portfolio_value(
 
     for symbol, qty, buy_price, mkt_price in rows:
         position_value = r2(qty * mkt_price)
-        pnl = r2((mkt_price - buy_price) * qty)
+        # Use market price as buy price if buy_price is null (for onboarding positions)
+        effective_buy_price = buy_price if buy_price is not None else mkt_price
+        pnl = r2((mkt_price - effective_buy_price) * qty)
         positions.append(
             {
                 "symbol": symbol,
                 "quantity": r2(qty),
-                "buy_price": r2(buy_price),
+                "buy_price": r2(effective_buy_price),
                 "mkt_price": r2(mkt_price),
                 "position_value": position_value,
                 "pnl": pnl,

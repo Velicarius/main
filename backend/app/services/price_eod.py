@@ -8,7 +8,8 @@ from app.models.price_eod import PriceEOD
 
 
 def _normalize_symbol(sym: str) -> str:
-    return (sym or "").strip().lower()
+    """Normalize symbol to uppercase for consistent storage"""
+    return (sym or "").strip().upper()
 
 
 class PriceEODRepository:
@@ -108,3 +109,8 @@ class PriceEODRepository:
         q.delete(synchronize_session=False)
         self.db.commit()
         return count
+
+    def get_symbols(self) -> List[str]:
+        """Get all unique symbols that have price data"""
+        symbols = self.db.query(PriceEOD.symbol).distinct().all()
+        return [symbol[0] for symbol in symbols]

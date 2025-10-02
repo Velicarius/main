@@ -2,12 +2,12 @@ import { Link, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../store/auth';
 import { logout as apiLogout } from '../lib/api';
 
-const navItems = [
-  { path: '/', label: 'Dashboard' },
-  { path: '/positions', label: 'Positions' },
-  { path: '/insights', label: 'AI Analysis' },
-  { path: '/settings', label: 'Settings' },
-];
+  const navItems = [
+    { path: '/', label: 'Dashboard' },
+    { path: '/positions', label: 'Positions' },
+    { path: '/insights', label: 'Insights' },
+    { path: '/settings', label: 'Settings' },
+  ];
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const location = useLocation();

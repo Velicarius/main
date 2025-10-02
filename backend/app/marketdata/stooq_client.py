@@ -1,78 +1,131 @@
-from __future__ import annotations
-import csv
+import io
+import logging
 from datetime import datetime
-from io import StringIO
-from urllib.request import urlopen
+from typing import Optional, Tuple
+
+import pandas as pd
+import requests
+
+STOOQ_EOD_URL = "https://stooq.com/q/d/l/?s={sym}&i=d"
+_LOG = logging.getLogger(__name__)
+
 
 class StooqFetchError(Exception):
+    """Exception raised when Stooq API fails"""
     pass
 
-def fetch_latest_from_stooq(symbol: str, timeout: int = 10) -> dict | None:
+_VALID_SUFFIXES = {".us", ".pl", ".de", ".jp", ".uk", ".fr", ".cn", ".hk", ".in", ".ca"}
+
+def symbol_to_stooq(symbol: str) -> str:
     """
-    Возвращает последнюю дневную запись:
-      { 'date': date, 'open': float|None, 'high': float|None, 'low': float|None,
-        'close': float, 'volume': int|None, 'source': 'stooq' }
-    Или None, если данных нет.
-    Авто-фоллбек: если данных нет для 'symbol' и в нём нет точки — пробуем 'symbol.us'.
+    Normalize a human ticker to Stooq format.
+    - Uppercase base symbol.
+    - If no market suffix present, default to .US (most common in our app).
+    - Preserve existing known suffixes.
     """
-    def _fetch(sym: str) -> dict | None:
-        url = f"https://stooq.com/q/d/l/?s={sym}&i=d"
-        try:
-            with urlopen(url, timeout=timeout) as resp:
-                content = resp.read().decode("utf-8", errors="replace")
-        except Exception as e:
-            raise StooqFetchError(f"Failed to fetch {sym} from Stooq: {e}")
+    if not symbol:
+        raise ValueError("empty symbol")
+    s = symbol.strip().lower()
+    # if symbol already has a dot suffix, keep it
+    if "." in s and any(s.endswith(suf) for suf in _VALID_SUFFIXES):
+        base, suf = s.rsplit(".", 1)
+        norm = f"{base}.{suf}"
+    else:
+        norm = f"{s}.us"
+    return norm
 
-        reader = csv.DictReader(StringIO(content))
-        rows = list(reader)
-        if not rows:
-            return None
+def _fetch_csv_text(sym_stooq: str, timeout: float = 10.0) -> Tuple[str, int]:
+    url = STOOQ_EOD_URL.format(sym=sym_stooq)
+    _LOG.info("stooq_request", extra={"url": url, "symbol": sym_stooq})
+    
+    resp = requests.get(url, timeout=timeout)
+    text = resp.text.strip()
+    
+    # Логируем первые 200 символов ответа
+    preview = text[:200] if text else "EMPTY"
+    _LOG.info("stooq_response", extra={
+        "symbol": sym_stooq, 
+        "status": resp.status_code, 
+        "preview": preview
+    })
+    
+    return text, resp.status_code
 
-        last = rows[-1]  # ожидаемые поля: Date,Open,High,Low,Close,Volume
-        try:
-            d = datetime.strptime(last["Date"], "%Y-%m-%d").date()
+def fetch_eod_dataframe_from_stooq(symbol: str) -> pd.DataFrame:
+    """
+    Return a DataFrame with at least columns: Date, Open, High, Low, Close, Volume.
+    If Stooq returns 'No data' or malformed CSV, return an EMPTY DataFrame (no exception).
+    """
+    sym_stooq = symbol_to_stooq(symbol)
+    text, status = _fetch_csv_text(sym_stooq)
+    _LOG.info("stooq_fetch_start", extra={"symbol": symbol, "stooq": sym_stooq, "status": status})
 
-            def _f(x: str | None) -> float | None:
-                if not x or x == "-":
-                    return None
-                return float(x)
+    if not text or text.lower().startswith("no data"):
+        _LOG.warning("stooq_no_data", extra={"symbol": symbol, "stooq": sym_stooq})
+        return pd.DataFrame(columns=["Date", "Open", "High", "Low", "Close", "Volume"])
 
-            def _i(x: str | None) -> int | None:
-                if not x or x == "-":
-                    return None
-                return int(float(x))  # иногда Volume как "0.0"
+    try:
+        df = pd.read_csv(io.StringIO(text))
+        _LOG.info("stooq_dataframe_parsed", extra={
+            "symbol": symbol, 
+            "stooq": sym_stooq, 
+            "columns": list(df.columns),
+            "shape": df.shape
+        })
+    except Exception as e:
+        _LOG.error("stooq_csv_parse_error", extra={
+            "symbol": symbol, 
+            "stooq": sym_stooq, 
+            "err": str(e),
+            "text_preview": text[:200] if text else "EMPTY"
+        })
+        return pd.DataFrame(columns=["Date", "Open", "High", "Low", "Close", "Volume"])
 
-            close_val = _f(last.get("Close"))
-            if close_val is None:
-                # Без close запись нам не подходит
-                return None
+    # Normalize expected columns
+    # Stooq header usually: Date,Open,High,Low,Close,Volume
+    cols = {c.lower(): c for c in df.columns}
+    required = {"date", "open", "high", "low", "close"}
+    if not required.issubset(set(cols.keys())):
+        _LOG.error("stooq_missing_columns", extra={"symbol": symbol, "stooq": sym_stooq, "columns": list(df.columns)})
+        return pd.DataFrame(columns=["Date", "Open", "High", "Low", "Close", "Volume"])
 
-            return {
-                "date": d,
-                "open": _f(last.get("Open")),
-                "high": _f(last.get("High")),
-                "low":  _f(last.get("Low")),
-                "close": close_val,
-                "volume": _i(last.get("Volume")),
-                "source": "stooq",
-            }
-        except Exception as e:
-            raise StooqFetchError(f"Malformed CSV for {sym}: {e}")
+    # Ensure standard casing
+    df = df.rename(
+        columns={cols["date"]: "Date", cols["open"]: "Open", cols["high"]: "High", cols["low"]: "Low", cols["close"]: "Close"}
+    )
+    if "volume" in cols:
+        df = df.rename(columns={cols["volume"]: "Volume"})
+    elif "Volume" not in df.columns:
+        df["Volume"] = 0
 
-    sym = symbol.strip().lower()
+    # Parse dates
+    try:
+        df["Date"] = pd.to_datetime(df["Date"], errors="coerce", utc=False).dt.date
+    except Exception as e:
+        _LOG.error("stooq_date_parse_error", extra={"symbol": symbol, "err": str(e)})
+        return pd.DataFrame(columns=["Date", "Open", "High", "Low", "Close", "Volume"])
 
-    # 1) пробуем как есть
-    result = _fetch(sym)
-    if result is not None:
-        return result
+    # Drop rows with bad dates
+    df = df.dropna(subset=["Date"]).sort_values("Date").reset_index(drop=True)
 
-    # 2) если нет точки — пробуем .us
-    if "." not in sym:
-        return _fetch(f"{sym}.us")
+    _LOG.info("stooq_fetch_ok", extra={"symbol": symbol, "rows": int(df.shape[0])})
+    return df
 
-    return None
-
-
-
-
-
+def fetch_latest_from_stooq(symbol: str) -> Optional[dict]:
+    """
+    Fetch last available daily bar.
+    Returns dict: {date, open, high, low, close, volume} or None.
+    """
+    df = fetch_eod_dataframe_from_stooq(symbol)
+    if df.empty:
+        return None
+    row = df.iloc[-1]
+    return {
+        "date": str(row["Date"]),
+        "open": float(row["Open"]),
+        "high": float(row["High"]),
+        "low": float(row["Low"]),
+        "close": float(row["Close"]),
+        "volume": int(row.get("Volume", 0)),
+        "source": "stooq"
+    }

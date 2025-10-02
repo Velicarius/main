@@ -86,6 +86,9 @@ ai-portfolio-starter/
   .env.example
 ```
 
+## Troubleshooting
+- Legacy shim: `app.quotes.stooq` re-exports `app.marketdata.stooq_client`
+
 ## Next steps
 - Hook your market data sources in `services/ingestion.py`
 - Implement embeddings and retrieval in `services/vectors.py`

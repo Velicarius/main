@@ -71,6 +71,8 @@ class PositionOut(BaseModel):
     buy_date: Optional[date]
     currency: str
     account: Optional[str]
+    last_price: Optional[Decimal] = None
+    last_date: Optional[date] = None
 
     class Config:
         from_attributes = True
@@ -149,3 +151,33 @@ class PortfolioValuationEODOut(BaseModel):
     created_at: datetime
     class Config:
         from_attributes = True
+
+
+class UserOut(BaseModel):
+    id: UUID
+    email: str
+    name: Optional[str]
+    usd_balance: Decimal
+
+    class Config:
+        from_attributes = True
+
+
+class BalanceUpdateRequest(BaseModel):
+    usd_balance: condecimal(ge=0)
+
+
+class CashLedgerMetric(BaseModel):
+    """Метрика денежной кассы пользователя"""
+    free_usd: Decimal  # Свободные деньги в USD
+    portfolio_balance: Decimal  # Рыночная стоимость позиций в USD
+    total_equity: Decimal  # Общий капитал = Free USD + Portfolio Balance
+    positions_count: int  # Количество позиций
+
+
+class UserWithBalance(BaseModel):
+    id: UUID
+    email: str
+    name: Optional[str]
+    usd_balance: Decimal
+    positions: List[PositionOut]
