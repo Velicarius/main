@@ -11,6 +11,7 @@ from app.models.price_eod import PriceEOD
 from uuid import UUID
 from decimal import Decimal
 from typing import List
+from datetime import datetime
 import logging
 
 logger = logging.getLogger(__name__)
@@ -53,6 +54,7 @@ def get_positions(
             "quantity": pos.quantity,
             "buy_price": pos.buy_price,
             "buy_date": pos.buy_date,
+            "date_added": pos.date_added,
             "currency": pos.currency,
             "account": pos.account,
         }
@@ -77,6 +79,15 @@ def get_positions(
         if latest_price:
             position_dict["last_price"] = latest_price.close
             position_dict["last_date"] = latest_price.date
+            
+            # Если нет buy_price, получаем цену на дату добавления позиции
+            if not pos.buy_price and pos.date_added:
+                from datetime import date
+                added_date = pos.date_added.date()
+                price_on_added_date = price_repo.get_price_on_date(pos.symbol, added_date)
+                if price_on_added_date:
+                    position_dict["reference_price"] = price_on_added_date.close
+                    position_dict["reference_date"] = added_date
         
         result.append(position_dict)
     
@@ -153,6 +164,7 @@ def create_position(
                 quantity=position_data.quantity,
                 buy_price=position_data.buy_price,
                 buy_date=position_data.buy_date,
+                date_added=datetime.utcnow(),
                 currency=position_data.currency or "USD",
                 account=position_data.account
             )

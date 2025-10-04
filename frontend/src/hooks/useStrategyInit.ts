@@ -23,5 +23,5 @@ export function useStrategyInit() {
         console.warn('Failed to parse onboarding data:', error);
       }
     }
-  }, [current.monthlyContribution, setMonthlyContribution]);
+  }, [current.monthlyContribution]); // Убираем setMonthlyContribution из зависимостей
 }

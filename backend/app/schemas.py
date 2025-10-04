@@ -69,10 +69,13 @@ class PositionOut(BaseModel):
     quantity: Decimal
     buy_price: Optional[Decimal]
     buy_date: Optional[date]
+    date_added: datetime
     currency: str
     account: Optional[str]
     last_price: Optional[Decimal] = None
     last_date: Optional[date] = None
+    reference_price: Optional[Decimal] = None
+    reference_date: Optional[date] = None
 
     class Config:
         from_attributes = True

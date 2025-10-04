@@ -91,7 +91,7 @@ export function useAllowedModels() {
     };
 
     loadAllowedModels();
-  }, [fetchAllowedModels]);
+  }, []); // Убираем fetchAllowedModels из зависимостей чтобы избежать бесконечного цикла
 
   return {
     allowedModels,

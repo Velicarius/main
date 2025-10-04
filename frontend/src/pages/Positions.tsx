@@ -135,8 +135,10 @@ export default function Positions() {
 
   // Refresh positions when auth state changes
   useEffect(() => {
-    fetchPositions();
-  }, [loggedIn]);
+    if (loggedIn) {
+      fetchPositions();
+    }
+  }, [loggedIn]); // Убираем fetchPositions из зависимостей чтобы избежать бесконечного цикла
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -570,14 +572,18 @@ export default function Positions() {
                   const currentPrice = lastPrice || buyPrice || 0; // Для отображения используем EOD цену или buy_price
                   const value = currentPrice ? quantity * currentPrice : 0;
                   
-                  // PnL должен быть 0 если нет EOD цены (нет сохраненных цен за день)
-                  // Если есть EOD цена и buy_price - рассчитываем PnL от buy_price  
+                  // Новая логика PnL:
+                  // 1. Если есть buy_price - используем его как точку отсчета
+                  // 2. Если нет buy_price - используем reference_price (цена на дату добавления)
                   const hasEodPrice = lastPrice > 0;
-                  const pnl = hasEodPrice && buyPrice > 0 
-                    ? (lastPrice * quantity) - (buyPrice * quantity)
+                  const referencePrice = Number((position as any).reference_price) || 0;
+                  const effectiveBuyPrice = buyPrice > 0 ? buyPrice : referencePrice;
+                  
+                  const pnl = hasEodPrice && effectiveBuyPrice > 0
+                    ? (lastPrice * quantity) - (effectiveBuyPrice * quantity)
                     : 0;
-                  const pnlPercentage = hasEodPrice && buyPrice > 0 && (quantity * buyPrice) > 0
-                    ? (pnl / (quantity * buyPrice)) * 100 
+                  const pnlPercentage = hasEodPrice && effectiveBuyPrice > 0 && (quantity * effectiveBuyPrice) > 0
+                    ? (pnl / (quantity * effectiveBuyPrice)) * 100 
                     : 0;
 
                   return (

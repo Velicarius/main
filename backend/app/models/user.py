@@ -15,3 +15,4 @@ class User(Base):
     usd_balance = Column(Numeric(precision=20, scale=8), nullable=False, default=Decimal(0))
 
     positions = relationship("Position", back_populates="user", cascade="all, delete-orphan")
+    strategy = relationship("Strategy", back_populates="user", uselist=False, cascade="all, delete-orphan")

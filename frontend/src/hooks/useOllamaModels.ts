@@ -121,7 +121,7 @@ export function useOllamaModels(cacheTtlMs = 300000) { // 5 минут по ум
     };
 
     loadModels();
-  }, [fetchModels, sortModels, cacheTtlMs]);
+  }, []); // Убираем функции из зависимостей чтобы избежать бесконечного цикла
 
   return {
     models,

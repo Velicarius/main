@@ -172,7 +172,7 @@ export default function UnifiedInsights() {
     if (user_id) {
       loadInsightsFast();
     }
-  }, [user_id, loadInsightsFast]);
+  }, [user_id]); // Убираем loadInsightsFast из зависимостей чтобы избежать бесконечного цикла
 
   // === Helper functions ===
   const formatTimeAgo = (date: Date): string => {

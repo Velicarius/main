@@ -8,21 +8,79 @@ import {
   InsightsV2Response, 
   InsightsV2Request
 } from '../types/insightsV2';
-import { swrInsightsAPI, SWRInsightsData } from '../lib/api-insights-swr';
 import { fmtPct, fmtUSD, fmtWeight, fmtRiskScore } from '../utils/number';
 import { sentimentAPI } from '../lib/api-sentiment';
 import { PortfolioSentimentMetrics, SentimentUtils, SentimentGrouping } from '../types/sentiment';
 
+// === Новые типы для Fixed Insights API ===
+interface FixedInsightsData {
+  rating: {
+    score: number;
+    label: string;
+    risk_level: string;
+  };
+  overview: {
+    headline: string;
+    tags: string[];
+    key_strengths: string[];
+    key_concerns: string[];
+  };
+  categories: Array<{
+    name: string;
+    score: number;
+    note: string;
+    trend: string;
+  }>;
+  insights: string[];
+  risks: Array<{
+    item: string;
+    severity: string;
+    mitigation: string;
+    impact: string;
+  }>;
+  performance: {
+    since_buy_pl_pct: number;
+    comment: string;
+    win_rate_pct?: number;
+    avg_position_return?: number;
+  };
+  diversification: {
+    score: number;
+    concentration_risk: string;
+    sector_diversity?: string;
+  };
+  actions: Array<{
+    title: string;
+    rationale: string;
+    expected_impact: string;
+    priority: number;
+    timeframe: string;
+  }>;
+  summary_markdown: string;
+}
+
+interface FixedInsightsResponse {
+  success: boolean;
+  cached: boolean;
+  model: string;
+  llm_ms: number;
+  compute_ms: number;
+  data: FixedInsightsData;
+}
+
 export default function Insights() {
   const { user_id } = useAuthStore();
   
-  // SWR данные
-  const [swrData, setSwrData] = useState<SWRInsightsData | null>(null);
+  // Fixed Insights данные
+  const [insightsData, setInsightsData] = useState<FixedInsightsData | null>(null);
   
   // Легаси поддержка для компонентов UI
   const [analysisData, setAnalysisData] = useState<InsightsV2Response | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  
+  // Флаг для предотвращения многократного автоматического запуска (ВРЕМЕННО ОТКЛЮЧЕН)
+  // const [hasRunInitialAnalysis, setHasRunInitialAnalysis] = useState(false);
   
   // === Метаданные кэша ===
   const [cacheMetadata, setCacheMetadata] = useState<{
@@ -89,13 +147,16 @@ export default function Insights() {
     window.history.replaceState({}, '', url.toString());
   }, [params]);
 
-  // Автоматический старт анализа при первой загрузке 
+  // Автоматический старт анализа при первой загрузке (ВРЕМЕННО ОТКЛЮЧЕН)
   useEffect(() => {
-    if (user_id && !analysisData && !loading) { // Включено обратно
-      // Автоматически запускаем анализ при первом открытии страницы
+    // ВРЕМЕННО ОТКЛЮЧЕНО для диагностики проблемы постоянных запросов
+    /*
+    if (user_id && !insightsData && !loading && !hasRunInitialAnalysis) {
       console.log('Auto-starting analysis for user:', user_id);
+      setHasRunInitialAnalysis(true);
       runAnalysis();
     }
+    */
   }, [user_id]);
 
   const loadSentimentData = async () => {
@@ -139,29 +200,41 @@ export default function Insights() {
     try {
       console.log('🚀 Starting INSIGHTS ANALYSIS with SWR - params:', params);
       
-      // 🔄 Используем новый SWR API с полным кэшированием
-      const [swrResponse] = await Promise.all([
-        swrInsightsAPI.getInsights(user_id!, 'default'), // SWR кэширование
+      // 🔄 Используем новый исправленный API с кэшированием
+      const [response] = await Promise.all([
+        fetch(`/ai/insights/fixed/?user_id=${user_id}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            horizon_months: params.horizon_months,
+            risk_profile: params.risk_profile,
+            model: params.model,
+            temperature: 0.2,
+            language: 'ru',
+            cache_mode: 'default'
+          })
+        }).then(res => res.json()) as Promise<FixedInsightsResponse>,
         loadSentimentData() // Загружаем sentiment данные в фоне
       ]);
       
       const e2eMs = Math.round(performance.now() - startTime);
       
-      // 🎯 Сохраняем SWR данные напрямую
-      setSwrData(swrResponse.data);
+      // 🎯 Сохраняем данные
+      setInsightsData(response.data);
       
-      // Обновляем метаданные кэша из SWR response
+      // Обновляем метаданные кэша из response
       setCacheMetadata({
-        cached: swrResponse.cached,
+        cached: response.cached,
         lastUpdated: new Date(),
         e2eMs: e2eMs,
-        llmMs: swrResponse.llm_ms,
-        modelVersion: swrResponse.model_name
+        llmMs: response.llm_ms || 0,
+        modelVersion: response.model || 'unknown'
       });
       
-      console.log('✅ SWR Analysis completed:', swrResponse);
-      console.log('📊 Cache status:', swrResponse.headers.xCache);
-      console.log('⚡ Performance:', `${swrResponse.compute_ms}ms total, ${swrResponse.llm_ms}ms LLM`);
+      console.log('✅ Analysis completed:', response);
+      console.log('⚡ Performance:', `${response.compute_ms}ms total, ${response.llm_ms}ms LLM`);
       
     } catch (err: any) {
       console.error('Analysis failed:', err);
@@ -185,20 +258,47 @@ export default function Insights() {
   }
 };
 
-// Обработчик для принудительного обновления через SWR
+// Обработчик для принудительного обновления кэша
 const handleRefresh = async () => {
-  console.log('🔄 SWR Manual refresh requested');
+  console.log('🔄 Manual refresh requested');
   setCacheMetadata({...cacheMetadata, cached: false});
   
   try {
-    // Используем SWR refresh endpoint
-    await swrInsightsAPI.refreshInsights(user_id!);
+    setLoading(true);
+    setError(null);
     
-    // После refresh обновляем данные
-    await runAnalysis();
+    const response = await fetch(`/ai/insights/fixed/?user_id=${user_id}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        horizon_months: params.horizon_months,
+        risk_profile: params.risk_profile,
+        model: params.model,
+        temperature: 0.2,
+        language: 'ru',
+        cache_mode: 'refresh' // Принудительное обновление кэша
+      })
+    });
+    
+    const data = await response.json() as FixedInsightsResponse;
+    
+    setInsightsData(data.data);
+    
+    setCacheMetadata({
+      cached: false, // Обновленные данные
+      lastUpdated: new Date(),
+      e2eMs: Math.round(performance.now() - performance.now()),
+      llmMs: data.llm_ms || 0,
+      modelVersion: data.model || 'unknown'
+    });
+    
   } catch (error) {
-    console.error('SWR Refresh failed:', error);
+    console.error('Cache refresh failed:', error);
     setError(error instanceof Error ? error.message : 'Refresh failed');
+  } finally {
+    setLoading(false);
   }
 };
 
@@ -312,7 +412,7 @@ const handleRefresh = async () => {
         isLoading={loading}
       />
 
-      {!analysisData && !swrData ? (
+      {!insightsData ? (
         // Состояние загрузки
             <div className="space-y-6">
           {loading ? (
@@ -352,8 +452,8 @@ const handleRefresh = async () => {
                   </div>
                 )}
               </div>
-      ) : swrData ? (
-        // SWR данные - простой блок для тестирования
+      ) : insightsData ? (
+        // Fixed Insights данные - полноценное отображение
         <div className="space-y-6">
           <div className="bg-slate-800 rounded-lg p-6">
             <div className="flex items-center justify-between mb-4">
@@ -400,42 +500,67 @@ const handleRefresh = async () => {
             
             <div className="space-y-4">
               <div>
-                <h3 className="text-lg font-medium text-white mb-2">Summary</h3>
-                <p className="text-slate-300">{swrData.summary}</p>
+                <h3 className="text-lg font-medium text-white mb-2">Overview</h3>
+                <p className="text-slate-300 mb-2">{insightsData.overview.headline}</p>
+                <div className="flex flex-wrap gap-2 mb-3">
+                  {insightsData.overview.tags.map((tag, index) => (
+                    <span key={index} className="px-2 py-1 bg-blue-500/20 text-xs rounded-full text-blue-300">
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <h4 className="text-sm text-emerald-300 mb-1">Strengths:</h4>
+                    <ul className="text-sm text-slate-300">
+                      {insightsData.overview.key_strengths.slice(0, 3).map((strength, index) => (
+                        <li key={index} className="mb-1">• {strength}</li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div>
+                    <h4 className="text-sm text-orange-300 mb-1">Concerns:</h4>
+                    <ul className="text-sm text-slate-300">
+                      {insightsData.overview.key_concerns.slice(0, 3).map((concern, index) => (
+                        <li key={index} className="mb-1">• {concern}</li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
               </div>
               
               <div>
-                <h3 className="text-lg font-medium text-white mb-2">Risk Assessment</h3>
-                <p className="text-slate-300">{swrData.risk_assessment}</p>
+                <h3 className="text-lg font-medium text-white mb-2">Performance</h3>
+                <p className="text-slate-300 mb-2">{insightsData.performance.comment}</p>
+                <div className="text-lg font-semibold text-emerald-400">
+                  {fmtPct(insightsData.performance.since_buy_pl_pct)}
+                </div>
               </div>
               
               <div>
-                <h3 className="text-lg font-medium text-white mb-2">Market Outlook</h3>
-                <p className="text-slate-300">{swrData.market_outlook}</p>
-              </div>
-              
-              <div>
-                <h3 className="text-lg font-medium text-white mb-2">Recommendations</h3>
+                <h3 className="text-lg font-medium text-white mb-2">Key Insights</h3>
                 <ul className="space-y-2">
-                  {swrData.recommendations.map((rec, index) => (
+                  {insightsData.insights.map((insight, index) => (
                     <li key={index} className="text-slate-300 flex items-start">
                       <span className="text-emerald-400 mr-2">•</span>
-                      {rec}
+                      {insight}
                     </li>
                   ))}
                 </ul>
               </div>
               
               <div>
-                <h3 className="text-lg font-medium text-white mb-2">Performance</h3>
+                <h3 className="text-lg font-medium text-white mb-2">Rating & Risks</h3>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="bg-slate-700/50 rounded p-3">
-                    <div className="text-sm text-slate-400">YTD</div>
-                    <div className="text-lg font-semibold text-white">{fmtPct(swrData.performance.ytd)}</div>
+                    <div className="text-sm text-slate-400">Overall Score</div>
+                    <div className="text-lg font-semibold text-white">{insightsData.rating.score}/10</div>
+                    <div className="text-xs text-slate-400">{insightsData.rating.label}</div>
                   </div>
                   <div className="bg-slate-700/50 rounded p-3">
-                    <div className="text-sm text-slate-400">Monthly</div>
-                    <div className="text-lg font-semibold text-white">{fmtPct(swrData.performance.monthly)}</div>
+                    <div className="text-sm text-slate-400">Diversification</div>
+                    <div className="text-lg font-semibold text-white">{insightsData.diversification.score}/10</div>
+                    <div className="text-xs text-slate-400">{insightsData.rating.risk_level}</div>
                   </div>
                 </div>
               </div>

@@ -10,6 +10,7 @@ OTHER_LISTED_URL  = "https://www.nasdaqtrader.com/dynamic/symdir/otherlisted.txt
 
 # Простой in-memory кэш
 _CACHE = {"ts": 0.0, "symbols": []}  # symbols: List[str] (UPPERCASE)
+_SYMBOL_INDEX = {}  # Индекс для быстрого поиска: {prefix: [symbols]}
 TTL_SECONDS = 6 * 3600  # обновляем раз в 6 часов
 
 router = APIRouter(prefix="/symbols/external", tags=["symbols-external"])
@@ -67,24 +68,58 @@ def _load_us_symbols() -> List[str]:
     # Немного нормализаций под Stooq: точки (BRK.B) допустимы; оставляем
     return sorted(syms)
 
+def _build_symbol_index(symbols: List[str]) -> dict:
+    """Создает индекс для быстрого поиска по префиксам"""
+    index = {}
+    for symbol in symbols:
+        # Добавляем все префиксы от 1 до длины символа
+        for i in range(1, len(symbol) + 1):
+            prefix = symbol[:i]
+            if prefix not in index:
+                index[prefix] = []
+            index[prefix].append(symbol)
+    
+    # Сортируем каждый список для консистентности
+    for prefix in index:
+        index[prefix].sort()
+    
+    return index
+
 def _ensure_cache() -> List[str]:
+    global _SYMBOL_INDEX
     now = time.time()
     if now - _CACHE["ts"] > TTL_SECONDS or not _CACHE["symbols"]:
-        _CACHE["symbols"] = _load_us_symbols()
-        _CACHE["ts"] = now
+        try:
+            _CACHE["symbols"] = _load_us_symbols()
+            _CACHE["ts"] = now
+            # Перестраиваем индекс при обновлении кэша
+            _SYMBOL_INDEX = _build_symbol_index(_CACHE["symbols"])
+        except Exception as e:
+            # Если не удалось загрузить, используем популярные символы как fallback
+            if not _CACHE["symbols"]:
+                _CACHE["symbols"] = ["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA", "META", "NVDA", "NFLX", "AMD", "INTC"]
+                _SYMBOL_INDEX = _build_symbol_index(_CACHE["symbols"])
     return _CACHE["symbols"]
 
 @router.get("/search", response_model=List[str])
 def search(q: str = Query(..., min_length=1), limit: int = Query(25, ge=1, le=200)) -> List[str]:
     """
-    Поиск по списку тикеров из NasdaqTrader (кэш 6ч).
+    Быстрый поиск по списку тикеров из NasdaqTrader (кэш 6ч + индекс).
     Возвращаем UPPERCASE; при использовании со Stooq можно добавлять суффикс .US.
     """
     q_up = q.strip().upper()
     if not q_up:
         return []
-    syms = _ensure_cache()
-    # фильтруем по подстроке (начало — приоритетно)
+    
+    # Убеждаемся, что кэш и индекс загружены
+    _ensure_cache()
+    
+    # Быстрый поиск через индекс
+    if q_up in _SYMBOL_INDEX:
+        return _SYMBOL_INDEX[q_up][:limit]
+    
+    # Если точного префикса нет, ищем частичные совпадения
+    syms = _CACHE["symbols"]
     starts = [s for s in syms if s.startswith(q_up)]
     contains = [s for s in syms if q_up in s and s not in starts]
     out = (starts + contains)[:limit]
@@ -98,6 +133,11 @@ def popular(limit: int = Query(20, ge=1, le=200)) -> List[str]:
     """
     anchors = ["SPY","AAPL","MSFT","NVDA","AMZN","GOOGL","META","TSLA","QQQ","BRK.B","V","XOM","UNH","JNJ","PG","JPM","HD","MA","NFLX","AMD"]
     return anchors[:limit]
+
+
+
+
+
 
 
 

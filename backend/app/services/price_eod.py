@@ -110,6 +110,25 @@ class PriceEODRepository:
         self.db.commit()
         return count
 
+    def get_price_on_date(self, symbol: str, target_date: date) -> Optional[PriceEOD]:
+        """Получить цену на определенную дату"""
+        sym = _normalize_symbol(symbol)
+        obj = (
+            self.db.query(PriceEOD)
+            .filter(PriceEOD.symbol == sym)
+            .filter(PriceEOD.date == target_date)
+            .first()
+        )
+        if obj is None and "." not in sym:
+            alt = f"{sym}.us"
+            obj = (
+                self.db.query(PriceEOD)
+                .filter(PriceEOD.symbol == alt)
+                .filter(PriceEOD.date == target_date)
+                .first()
+            )
+        return obj
+
     def get_symbols(self) -> List[str]:
         """Get all unique symbols that have price data"""
         symbols = self.db.query(PriceEOD.symbol).distinct().all()

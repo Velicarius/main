@@ -158,11 +158,24 @@ async def get_portfolio_sentiment(
         position_weights = {}
         total_value = 0.0
         
+        # Добавляем импорт PriceEODRepository
+        from app.services.price_eod import PriceEODRepository
+        price_repo = PriceEODRepository(db)
+        
         for position in positions_query:
-            if position.symbol and position.current_value:
-                position_weight = float(position.weight_percentage or 0)
-                position_weights[position.symbol] = position_weight
-                total_value += position.current_value
+            if position.symbol:
+                # Получаем текущую цену
+                latest_price = price_repo.get_latest_price(position.symbol)
+                if latest_price:
+                    current_price = float(latest_price.close)
+                    position_value = float(position.quantity) * current_price
+                    position_weights[position.symbol] = position_value
+                    total_value += position_value
+                elif position.buy_price:
+                    # Используем цену покупки если нет текущей цены
+                    position_value = float(position.quantity) * float(position.buy_price)
+                    position_weights[position.symbol] = position_value
+                    total_value += position_value
         
         # Нормализуем веса до 100%
         if total_value > 0:
@@ -235,13 +248,40 @@ async def get_sentiment_grouping(
                 fallback_rate=0.0
             )
         
+        # Добавляем PriceEODRepository для получения цен
+        from app.services.price_eod import PriceEODRepository
+        price_repo = PriceEODRepository(db)
+        
         # Извлекаем данные позиций
         position_weights = {}
-        total_value = sum(p.current_value or 0 for p in positions_query)
+        total_value = 0.0
         
         for position in positions_query:
-            if position.symbol and position.current_value:
-                weight_pct = (position.current_value / total_value * 100) if total_value > 0 else 0
+            if position.symbol:
+                # Получаем текущую цену
+                latest_price = price_repo.get_latest_price(position.symbol)
+                if latest_price:
+                    current_price = float(latest_price.close)
+                    position_value = float(position.quantity) * current_price
+                    total_value += position_value
+                elif position.buy_price:
+                    # Используем цену покупки если нет текущей цены
+                    position_value = float(position.quantity) * float(position.buy_price)
+                    total_value += position_value
+        
+        # Вычисляем веса в процентах
+        for position in positions_query:
+            if position.symbol:
+                latest_price = price_repo.get_latest_price(position.symbol)
+                if latest_price:
+                    current_price = float(latest_price.close)
+                    position_value = float(position.quantity) * current_price
+                elif position.buy_price:
+                    position_value = float(position.quantity) * float(position.buy_price)
+                else:
+                    continue
+                    
+                weight_pct = (position_value / total_value * 100) if total_value > 0 else 0
                 position_weights[position.symbol] = weight_pct
         
         # Получаем sentiment данные

@@ -1,0 +1,207 @@
+# AI Portfolio Tracker - Контекст проекта
+
+## Общее описание
+Приложение для управления инвестиционным портфелем с AI-инсайтами и автоматическими рекомендациями.
+
+## Архитектура
+- **Frontend**: React 18 + TypeScript + Vite + Tailwind CSS
+- **Backend**: FastAPI + Python 3.11 + SQLAlchemy + Celery
+- **Database**: PostgreSQL 16
+- **Cache**: Redis 7
+- **Vector DB**: Qdrant (для AI embeddings)
+- **State Management**: Zustand с persist в localStorage
+- **Forms**: React Hook Form + Zod validation
+
+## Структура проекта
+
+### Frontend (frontend/src/)
+```
+components/
+├── ai/                  # AI-related компоненты (insights, analysis)
+├── auth/                # Аутентификация (LoginForm, RegisterForm)
+├── common/              # Общие компоненты (AddPositionForm, PortfolioDisplay)
+├── dashboard/           # Dashboard виджеты (KPIs, charts, timeline)
+├── insights/            # Детальные инсайты по позициям
+├── strategy/            # Управление стратегией портфеля
+└── ui/                  # Базовые UI компоненты (Modal, etc)
+
+hooks/                   # Кастомные React хуки
+├── useAllowedModels.ts
+├── useOllamaModels.ts
+└── useStrategyInit.ts
+
+store/                   # Zustand stores
+├── auth.ts             # Аутентификация (email, name, user_id)
+└── strategy.ts         # Стратегия портфеля (258 строк, комплексная логика)
+
+lib/                    # API клиенты
+├── api-strategy.ts     # CRUD стратегий (248 строк)
+├── api-insights.ts     # AI инсайты
+├── api-sentiment.ts    # Sentiment analysis
+└── api-unified-insights.ts
+
+types/                  # TypeScript типы
+├── strategy.ts         # Типы стратегий (63 строки)
+├── unified-insights.ts # Типы AI инсайтов (145 строк)
+└── sentiment.ts, insightsV2.ts, ollama.ts
+
+services/
+└── authService.ts      # Сервис аутентификации
+```
+
+### Backend (backend/app/)
+```
+api/routes/             # API endpoints
+models/                 # SQLAlchemy модели БД
+schemas/                # Pydantic схемы для validation
+services/               # Бизнес-логика
+routers/                # 25 роутеров для различных фич
+crud/                   # CRUD операции
+```
+
+## Ключевые компоненты
+
+### Большие компоненты (требуют внимания при изменении)
+1. **AIInsightsPortfolioAnalyzer.tsx** (848 строк) - главный компонент AI-анализа портфеля
+2. **ManualStrategyEditor.tsx** (578 строк) - редактор стратегии
+3. **AddPositionForm.tsx** (389 строк) - форма добавления позиций с autocomplete
+4. **strategy.ts store** (258 строк) - центральный store для стратегии
+
+### State Management паттерны
+- **Zustand stores**: Глобальный state для auth и strategy
+- **React Hook Form**: Локальный state для форм
+- **localStorage persist**: Автоматическое сохранение auth и strategy
+
+### API паттерны
+- Все API вызовы централизованы в `lib/api-*.ts`
+- Обработка ошибок через try-catch
+- Fallback значения в stores при ошибках
+
+## Важные правила для AI
+
+### React компоненты
+- Используй функциональные компоненты с хуками
+- Для форм используй React Hook Form + Zod
+- Для глобального state используй Zustand (НЕ Context API, НЕ Redux)
+- Tailwind CSS для стилей (только core utility classes, без custom)
+
+### TypeScript
+- Строгая типизация включена (`strict: true`)
+- Все новые типы добавляй в `src/types/`
+- Используй интерфейсы для объектов, type для unions
+
+### API интеграция
+- Новые endpoints добавляй в соответствующий `lib/api-*.ts`
+- Всегда добавляй типы для request/response
+- Используй async/await с try-catch
+
+### Styling
+- Только Tailwind utility classes
+- Dark mode поддерживается через `dark:` префикс
+- Нет inline styles, нет CSS modules
+
+### State updates
+- **НИКОГДА не используй localStorage напрямую** - только через Zustand persist
+- Для debounce используй useEffect с setTimeout
+- Для флагов блокировки используй `useRef`, не `useState`
+
+### Docker
+- Frontend: Multi-stage build (Node → Nginx)
+- Backend: Python 3.11 + uv package manager
+- Все environment variables через docker-compose.yml
+
+## Известные паттерны в проекте
+
+### Autocomplete pattern (AddPositionForm)
+- Debounced search с 500ms задержкой
+- Кэширование результатов поиска
+- Умная сортировка по релевантности
+- **Важно**: используй `useRef` для флага блокировки, не `useState`
+
+### AI Insights pattern
+- Данные получаются через `api-unified-insights.ts`
+- Группировка по sentiment/sector
+- Визуализация через Recharts
+
+### Strategy pattern
+- CRUD через `api-strategy.ts`
+- Сохранение в Zustand store с persist
+- Валидация через Zod схемы
+
+## Environment Variables
+
+### Frontend (VITE_*)
+- `VITE_API_BASE` - URL backend API
+
+### Backend
+- Database: `DATABASE_URL`, `POSTGRES_*`
+- Redis: `REDIS_URL`
+- AI: `OPENAI_API_KEY`, `QDRANT_*`
+- Auth: OAuth credentials
+
+## Частые задачи
+
+### Добавить новый компонент
+1. Создать в соответствующей папке `components/`
+2. Добавить типы в `types/` если нужно
+3. Использовать Tailwind для стилей
+4. Экспортировать и использовать
+
+### Добавить новый API endpoint
+1. Создать функцию в `lib/api-*.ts`
+2. Определить типы request/response
+3. Добавить обработку ошибок
+4. Использовать в компоненте через async/await
+
+### Изменить большой компонент (>500 строк)
+1. Сначала понять текущую логику
+2. Делать минимальные изменения
+3. Тестировать после каждого изменения
+4. Если нужен рефакторинг - обсудить перед началом
+
+### Debug
+- Frontend: DevTools в браузере, React DevTools
+- Backend: FastAPI автоматическая документация `/docs`
+- Database: через docker exec в postgres контейнер
+
+## Технический долг
+- `AIInsightsPortfolioAnalyzer.tsx` (848 строк) - слишком большой
+- Backend Dockerfile - нет multi-stage build
+- Нет .dockerignore для backend
+- Нет CI/CD
+- Нет автоматических тестов
+
+## Приоритеты
+1. **Фичи важнее архитектуры** - если работает, не трогай
+2. **Минимальные изменения** - не переписывай с нуля
+3. **Типизация обязательна** - все должно быть типизировано
+4. **Не ломай существующее** - проверяй совместимость
+
+---
+
+## Правила безопасности при изменениях
+
+### ЗАПРЕЩЕНО без явного разрешения:
+- Переписывать существующие компоненты с нуля
+- Менять структуру Zustand stores
+- Менять API endpoints без согласования
+- Удалять файлы
+- Рефакторить "для красоты"
+
+### РАЗРЕШЕНО:
+- Создавать новые файлы
+- Исправлять конкретные баги
+- Добавлять новые функции
+- Оптимизировать производительность
+
+### При любых изменениях:
+1. Показать diff (что именно меняется)
+2. Объяснить зачем
+3. Предупредить о рисках
+4. Спросить подтверждение если >50 строк
+
+### Если неуверен - спроси, не делай автоматически.
+
+---
+
+При работе над задачами всегда учитывай этот контекст.

@@ -5,7 +5,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from celery import Celery
 from app.core.config import settings
 from app.routers import health, portfolio, dbtest, portfolio_value, prices_ingest, positions, admin_tasks, admin_eod, portfolio_valuations
-from app.routers import admin_eod_sync, symbols_external, ai_portfolio, auth, users, prices_eod, llm_proxy, debug_net, insights_v2, insights_optimized, sentiment, ai_insights_swr
+from app.routers import admin_eod_sync, symbols_external, ai_portfolio, auth, users, prices_eod, llm_proxy, debug_net, insights_v2, insights_optimized, sentiment, ai_insights_swr, ai_insights_fixed, strategy
 from app.database import SessionLocal
 from app.db.seed import seed_demo_data
 
@@ -67,7 +67,9 @@ app.include_router(llm_proxy.router)           # /llm - прокси к лока
 app.include_router(insights_v2.router)         # /insights/v2 - новый анализатор портфеля v2
 app.include_router(insights_optimized.router)  # /insights - оптимизированный анализатор с кэшированием
 app.include_router(sentiment.router)           # /ai/sentiment - анализатор сентимента финансовых новостей
-app.include_router(ai_insights_swr.router) # /ai/insights - SWR API с полным кэшированием
+app.include_router(ai_insights_swr.router)     # /ai/insights-swr - SWR API с полным кэшированием
+app.include_router(ai_insights_fixed.router)   # /ai/insights/fixed - исправленный упрощенный API
+app.include_router(strategy.router)            # /strategy - управление инвестиционными стратегиями
 app.include_router(debug_net.router)           # /debug - диагностика сетевых подключений (только для разработки)
 
 
