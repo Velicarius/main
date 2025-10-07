@@ -7,6 +7,7 @@ import Positions from './pages/Positions';
 // import InsightsOptimized from './pages/InsightsOptimized'; // DEPRECATED - use unified insights
 import Insights from './pages/Insights';
 import UnifiedInsights from './pages/UnifiedInsights';
+import News from './pages/News';
 import Settings from './pages/Settings';
 
 // Protected Route component
@@ -54,6 +55,11 @@ function App() {
               } />
               {/* Redirect old URL to new one */}
               <Route path="/insights-v2" element={<Navigate to="/insights" replace />} />
+              <Route path="/news" element={
+                <ProtectedRoute>
+                  <News />
+                </ProtectedRoute>
+              } />
               <Route path="/settings" element={
                 <ProtectedRoute>
                   <Settings />

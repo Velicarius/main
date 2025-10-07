@@ -1,11 +1,14 @@
 import { useState } from 'react';
 import { useAuthStore } from '../store/auth';
+import { useSettingsStore } from '../store/settings';
 import { getBaseUrl, setBaseUrl } from '../lib/api';
 import LLMTestPanel from '../components/LLMTestPanel';
 import ModelsSection from '../components/ModelsSection';
+import { AIProviderStatus } from '../components/settings/AIProviderStatus';
 
 export default function Settings() {
   const { email, user_id, logout } = useAuthStore();
+  const { settings, updateSetting } = useSettingsStore();
   const [activeTab, setActiveTab] = useState('profile');
   const [backendUrl, setBackendUrl] = useState(getBaseUrl());
   const [showToast, setShowToast] = useState(false);
@@ -100,6 +103,116 @@ export default function Settings() {
               <div className="space-y-6">
                 <h2 className="text-xl font-semibold text-white">Preferences</h2>
                 <div className="space-y-4">
+                  {/* AI Model Settings - Insights */}
+                  <div className="p-4 bg-slate-700/30 rounded-lg border border-slate-600/30">
+                    <h3 className="font-medium text-white mb-2">📊 AI Model Settings - Insights</h3>
+                    <p className="text-sm text-slate-400 mb-4">Configure the AI model for portfolio insights and analysis</p>
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-slate-300 mb-2">AI Provider</label>
+                        <select
+                          value={settings.insightsAiProvider}
+                          onChange={(e) => updateSetting('insightsAiProvider', e.target.value as 'openai' | 'ollama')}
+                          className="w-full px-4 py-3 bg-slate-700/50 border border-slate-600/50 rounded-lg text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 backdrop-blur-sm transition-all duration-200"
+                        >
+                          <option value="ollama">🦙 Ollama (Local)</option>
+                          <option value="openai">🤖 OpenAI (Cloud)</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-300 mb-2">Model</label>
+                        <select
+                          value={settings.insightsAiModel}
+                          onChange={(e) => updateSetting('insightsAiModel', e.target.value)}
+                          className="w-full px-4 py-3 bg-slate-700/50 border border-slate-600/50 rounded-lg text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 backdrop-blur-sm transition-all duration-200"
+                        >
+                          {settings.insightsAiProvider === 'ollama' ? (
+                            <>
+                              <option value="llama3.1:8b">🦙 Llama 3.1 8B (Recommended)</option>
+                              <option value="llama3.1:70b">🦙 Llama 3.1 70B (High Quality)</option>
+                              <option value="llama3.2:3b">🦙 Llama 3.2 3B (Fast)</option>
+                              <option value="gemma2:9b">💎 Gemma 2 9B</option>
+                              <option value="qwen2.5:7b">🔥 Qwen 2.5 7B</option>
+                            </>
+                          ) : (
+                            <>
+                              <option value="gpt-4o-mini">🤖 GPT-4o Mini (Fast & Cheap)</option>
+                              <option value="gpt-4o">🤖 GPT-4o (High Quality)</option>
+                              <option value="gpt-4-turbo">🤖 GPT-4 Turbo</option>
+                            </>
+                          )}
+                        </select>
+                        <p className="text-xs text-slate-500 mt-1">
+                          {settings.insightsAiProvider === 'ollama' 
+                            ? 'Local models run on your machine. Make sure Ollama is installed and running.'
+                            : 'Cloud models require OpenAI API key. Faster but costs money per request.'
+                          }
+                        </p>
+                        <div className="mt-2">
+                          <AIProviderStatus 
+                            provider={settings.insightsAiProvider} 
+                            model={settings.insightsAiModel} 
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* AI Model Settings - News */}
+                  <div className="p-4 bg-slate-700/30 rounded-lg border border-slate-600/30">
+                    <h3 className="font-medium text-white mb-2">📰 AI Model Settings - News</h3>
+                    <p className="text-sm text-slate-400 mb-4">Configure the AI model for news summarization</p>
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-slate-300 mb-2">AI Provider</label>
+                        <select
+                          value={settings.newsAiProvider}
+                          onChange={(e) => updateSetting('newsAiProvider', e.target.value as 'openai' | 'ollama')}
+                          className="w-full px-4 py-3 bg-slate-700/50 border border-slate-600/50 rounded-lg text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 backdrop-blur-sm transition-all duration-200"
+                        >
+                          <option value="ollama">🦙 Ollama (Local)</option>
+                          <option value="openai">🤖 OpenAI (Cloud)</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-300 mb-2">Model</label>
+                        <select
+                          value={settings.newsAiModel}
+                          onChange={(e) => updateSetting('newsAiModel', e.target.value)}
+                          className="w-full px-4 py-3 bg-slate-700/50 border border-slate-600/50 rounded-lg text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 backdrop-blur-sm transition-all duration-200"
+                        >
+                          {settings.newsAiProvider === 'ollama' ? (
+                            <>
+                              <option value="llama3.1:8b">🦙 Llama 3.1 8B (Recommended)</option>
+                              <option value="llama3.1:70b">🦙 Llama 3.1 70B (High Quality)</option>
+                              <option value="llama3.2:3b">🦙 Llama 3.2 3B (Fast)</option>
+                              <option value="gemma2:9b">💎 Gemma 2 9B</option>
+                              <option value="qwen2.5:7b">🔥 Qwen 2.5 7B</option>
+                            </>
+                          ) : (
+                            <>
+                              <option value="gpt-4o-mini">🤖 GPT-4o Mini (Fast & Cheap)</option>
+                              <option value="gpt-4o">🤖 GPT-4o (High Quality)</option>
+                              <option value="gpt-4-turbo">🤖 GPT-4 Turbo</option>
+                            </>
+                          )}
+                        </select>
+                        <p className="text-xs text-slate-500 mt-1">
+                          {settings.newsAiProvider === 'ollama' 
+                            ? 'Local models run on your machine. Make sure Ollama is installed and running.'
+                            : 'Cloud models require OpenAI API key. Faster but costs money per request.'
+                          }
+                        </p>
+                        <div className="mt-2">
+                          <AIProviderStatus 
+                            provider={settings.newsAiProvider} 
+                            model={settings.newsAiModel} 
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
                   <div className="p-4 bg-slate-700/30 rounded-lg border border-slate-600/30">
                     <h3 className="font-medium text-white mb-2">Backend URL</h3>
                     <p className="text-sm text-slate-400 mb-4">Configure the API server address</p>
@@ -124,27 +237,48 @@ export default function Settings() {
                       <h3 className="font-medium text-white">Dark Mode</h3>
                       <p className="text-sm text-slate-400">Use dark theme for the application</p>
                     </div>
-                    <div className="w-12 h-6 bg-blue-600 rounded-full relative">
-                      <div className="w-5 h-5 bg-white rounded-full absolute top-0.5 right-0.5"></div>
-                    </div>
+                    <button
+                      onClick={() => updateSetting('darkMode', !settings.darkMode)}
+                      className={`w-12 h-6 rounded-full relative transition-colors duration-200 ${
+                        settings.darkMode ? 'bg-blue-600' : 'bg-slate-600'
+                      }`}
+                    >
+                      <div className={`w-5 h-5 bg-white rounded-full absolute top-0.5 transition-transform duration-200 ${
+                        settings.darkMode ? 'right-0.5' : 'left-0.5'
+                      }`}></div>
+                    </button>
                   </div>
                   <div className="flex items-center justify-between p-4 bg-slate-700/30 rounded-lg border border-slate-600/30">
                     <div>
                       <h3 className="font-medium text-white">Auto-refresh</h3>
                       <p className="text-sm text-slate-400">Automatically refresh portfolio data</p>
                     </div>
-                    <div className="w-12 h-6 bg-slate-600 rounded-full relative">
-                      <div className="w-5 h-5 bg-white rounded-full absolute top-0.5 left-0.5"></div>
-                    </div>
+                    <button
+                      onClick={() => updateSetting('autoRefresh', !settings.autoRefresh)}
+                      className={`w-12 h-6 rounded-full relative transition-colors duration-200 ${
+                        settings.autoRefresh ? 'bg-blue-600' : 'bg-slate-600'
+                      }`}
+                    >
+                      <div className={`w-5 h-5 bg-white rounded-full absolute top-0.5 transition-transform duration-200 ${
+                        settings.autoRefresh ? 'right-0.5' : 'left-0.5'
+                      }`}></div>
+                    </button>
                   </div>
                   <div className="flex items-center justify-between p-4 bg-slate-700/30 rounded-lg border border-slate-600/30">
                     <div>
                       <h3 className="font-medium text-white">Notifications</h3>
                       <p className="text-sm text-slate-400">Receive portfolio alerts and updates</p>
                     </div>
-                    <div className="w-12 h-6 bg-blue-600 rounded-full relative">
-                      <div className="w-5 h-5 bg-white rounded-full absolute top-0.5 right-0.5"></div>
-                    </div>
+                    <button
+                      onClick={() => updateSetting('notifications', !settings.notifications)}
+                      className={`w-12 h-6 rounded-full relative transition-colors duration-200 ${
+                        settings.notifications ? 'bg-blue-600' : 'bg-slate-600'
+                      }`}
+                    >
+                      <div className={`w-5 h-5 bg-white rounded-full absolute top-0.5 transition-transform duration-200 ${
+                        settings.notifications ? 'right-0.5' : 'left-0.5'
+                      }`}></div>
+                    </button>
                   </div>
                 </div>
               </div>

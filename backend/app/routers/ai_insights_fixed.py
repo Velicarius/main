@@ -39,8 +39,16 @@ async def get_insights_fixed(
     """Простой endpoint для получения insights"""
     
     try:
-        # Преобразуем запрос
-        service_request = UnifiedInsightsRequest(**request.dict())
+        # Use request settings or defaults from environment
+        from app.core.config import settings
+        
+        model = request.model or settings.default_insights_model or "llama3.1:8b"
+        provider = "ollama" if model.startswith(('llama', 'gemma', 'qwen', 'mistral', 'codellama')) else "openai"
+        
+        # Преобразуем запрос с настройками по умолчанию
+        request_dict = request.dict()
+        request_dict['model'] = model
+        service_request = UnifiedInsightsRequest(**request_dict)
         
         # Получаем insights
         response = await insights_service.get_insights(user_id, service_request, db)
@@ -61,6 +69,8 @@ async def get_insights_fixed(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Analysis failed: {str(e)}"
         )
+
+
 
 
 

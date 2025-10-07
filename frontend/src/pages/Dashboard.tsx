@@ -6,10 +6,11 @@ import { useStrategyInit } from '../hooks/useStrategyInit';
 import { PortfolioSnapshot } from '../components/dashboard/PortfolioSnapshot';
 import { SacredTimeline } from '../components/dashboard/SacredTimeline';
 import { ManualStrategyEditor } from '../components/strategy/ManualStrategyEditor';
+import { calculatePortfolioPnL } from '../utils/pnl';
 
 export default function Dashboard() {
   const { loggedIn, user_id } = useAuthStore();
-  const { current: strategy } = useStrategyStore();
+  const { current: strategy, loadStrategy } = useStrategyStore();
   const [positions, setPositions] = useState<any[]>([]);
   const [usdBalance, setUsdBalance] = useState<number>(0);
   const [portfolioHistory, setPortfolioHistory] = useState<PortfolioValuation[]>([]);
@@ -28,6 +29,9 @@ export default function Dashboard() {
         
         // Check backend health
         await healthCheck();
+        
+        // Load strategy data
+        await loadStrategy();
         
         // Fetch positions
         const pos = await getPositions();
@@ -103,16 +107,9 @@ export default function Dashboard() {
     }
   }, [loggedIn, user_id]);
 
-  // Calculate portfolio metrics
-  const totalInvested = positions.reduce((sum: number, pos: any) => {
-    // Use current market price if buy_price is null (for onboarding positions)
-    const effectiveBuyPrice = pos.buy_price || pos.last || 0;
-    return sum + (pos.quantity * effectiveBuyPrice);
-  }, 0);
-  const totalMarketValue = positions.reduce((sum: number, pos: any) => sum + (pos.quantity * (pos.last || pos.buy_price || 0)), 0);
-  const totalPnL = totalMarketValue - totalInvested;
-  const pnlPercentage = totalInvested > 0 ? (totalPnL / totalInvested) * 100 : 0;
-  
+  // Calculate portfolio metrics using shared logic
+  const { totalMarketValue, totalPnL, pnlPercentage } = calculatePortfolioPnL(positions);
+
   // Total portfolio value including cash
   const totalPortfolioValue = totalMarketValue + usdBalance;
 

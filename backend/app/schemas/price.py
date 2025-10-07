@@ -39,3 +39,5 @@ class PriceEODResponse(BaseModel):
         from_attributes = True
 
 
+
+

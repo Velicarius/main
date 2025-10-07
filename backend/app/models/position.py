@@ -1,9 +1,14 @@
 from sqlalchemy.orm import relationship
-from sqlalchemy import Column, String, ForeignKey, Date, Numeric, DateTime
+from sqlalchemy import Column, String, ForeignKey, Date, Numeric, DateTime, Enum
 from app.dbtypes import GUID
 import uuid
 from datetime import datetime
 from .base import Base
+import enum
+
+class AssetClass(enum.Enum):
+    EQUITY = "EQUITY"
+    CRYPTO = "CRYPTO"
 
 class Position(Base):
     __tablename__ = "positions"
@@ -18,6 +23,7 @@ class Position(Base):
     date_added = Column(DateTime, nullable=False, default=lambda: datetime.utcnow())
     currency = Column(String, nullable=False, default="USD", server_default="USD")
     account = Column(String, nullable=True)
+    asset_class = Column(Enum(AssetClass), nullable=False, default=AssetClass.EQUITY, server_default="EQUITY")
 
     user = relationship("User", back_populates="positions")
 

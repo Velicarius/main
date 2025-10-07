@@ -81,3 +81,5 @@ if __name__ == "__main__":
         set_buy_prices_for_user(user_id)
     else:
         set_buy_prices_for_all_users()
+
+

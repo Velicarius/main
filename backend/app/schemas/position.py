@@ -3,6 +3,7 @@ from typing import Optional, List
 from decimal import Decimal
 from datetime import date, datetime
 from uuid import UUID
+from app.models.position import AssetClass
 
 
 class PositionCreate(BaseModel):
@@ -12,6 +13,7 @@ class PositionCreate(BaseModel):
     buy_date: Optional[date] = None
     currency: Optional[str] = "USD"
     account: Optional[str] = None
+    asset_class: Optional[AssetClass] = AssetClass.EQUITY
 
     class Config:
         json_schema_extra = {
@@ -51,6 +53,7 @@ class PositionUpdate(BaseModel):
     buy_date: Optional[date] = None
     currency: Optional[str] = None
     account: Optional[str] = None
+    asset_class: Optional[AssetClass] = None
 
     class Config:
         json_schema_extra = {
@@ -72,6 +75,7 @@ class PositionOut(BaseModel):
     date_added: datetime
     currency: str
     account: Optional[str]
+    asset_class: AssetClass
     last_price: Optional[Decimal] = None
     last_date: Optional[date] = None
     reference_price: Optional[Decimal] = None

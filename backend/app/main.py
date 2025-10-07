@@ -5,7 +5,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from celery import Celery
 from app.core.config import settings
 from app.routers import health, portfolio, dbtest, portfolio_value, prices_ingest, positions, admin_tasks, admin_eod, portfolio_valuations
-from app.routers import admin_eod_sync, symbols_external, ai_portfolio, auth, users, prices_eod, llm_proxy, debug_net, insights_v2, insights_optimized, sentiment, ai_insights_swr, ai_insights_fixed, strategy
+from app.routers import admin_eod_sync, symbols_external, ai_portfolio, auth, users, prices_eod, llm_proxy, debug_net, insights_v2, insights_optimized, sentiment, ai_insights_swr, ai_insights_fixed, strategy, news, crypto_quotes
 from app.database import SessionLocal
 from app.db.seed import seed_demo_data
 
@@ -70,6 +70,12 @@ app.include_router(sentiment.router)           # /ai/sentiment - анализа�
 app.include_router(ai_insights_swr.router)     # /ai/insights-swr - SWR API с полным кэшированием
 app.include_router(ai_insights_fixed.router)   # /ai/insights/fixed - исправленный упрощенный API
 app.include_router(strategy.router)            # /strategy - управление инвестиционными стратегиями
+app.include_router(news.router)                # /news - агрегация новостей из нескольких источников
+app.include_router(crypto_quotes.router)       # /crypto/quotes - крипто-цены
+
+# Import news cache router
+from app.routers import news_cache
+app.include_router(news_cache.router)          # /news/cache - управление кэшем новостей
 app.include_router(debug_net.router)           # /debug - диагностика сетевых подключений (только для разработки)
 
 

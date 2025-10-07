@@ -3,6 +3,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { PlusIcon } from '@heroicons/react/20/solid';
+import { getPopularSymbols, getAllowedCryptoSymbols } from '../../lib/api';
 
 // Схема валидации с помощью Zod
 const addPositionSchema = z.object({
@@ -14,7 +15,8 @@ const addPositionSchema = z.object({
     .refine((val) => {
       const num = parseFloat(val);
       return !isNaN(num) && num > 0;
-    }, 'Quantity must be a positive number')
+    }, 'Quantity must be a positive number'),
+  asset_class: z.enum(['EQUITY', 'CRYPTO'])
 });
 
 type AddPositionFormData = z.infer<typeof addPositionSchema>;
@@ -25,7 +27,7 @@ interface SymbolSuggestion {
 }
 
 interface AddPositionFormProps {
-  onSubmit: (data: { symbol: string; quantity: number }) => Promise<void>;
+  onSubmit: (data: { symbol: string; quantity: number; asset_class?: 'EQUITY' | 'CRYPTO' }) => Promise<void>;
   isLoading?: boolean;
 }
 
@@ -45,7 +47,8 @@ export const AddPositionForm: React.FC<AddPositionFormProps> = ({
     resolver: zodResolver(addPositionSchema),
     defaultValues: {
       symbol: '',
-      quantity: ''
+      quantity: '',
+      asset_class: 'EQUITY'
     }
   });
 
@@ -54,8 +57,10 @@ export const AddPositionForm: React.FC<AddPositionFormProps> = ({
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchCache, setSearchCache] = useState<Map<string, SymbolSuggestion[]>>(new Map());
+  const [cryptoSymbols, setCryptoSymbols] = useState<string[]>([]);
   const isSelectingRef = useRef(false); // Флаг для предотвращения поиска после выбора
   const symbolValue = watch('symbol');
+  const assetClassValue = watch('asset_class');
 
   // Функция умной сортировки по релевантности
   const sortByRelevance = (results: SymbolSuggestion[], query: string): SymbolSuggestion[] => {
@@ -95,34 +100,55 @@ export const AddPositionForm: React.FC<AddPositionFormProps> = ({
     });
   };
 
-  // Загружаем популярные символы при инициализации
+  // Загружаем популярные символы и крипто-символы при инициализации
   useEffect(() => {
-    const loadPopularSymbols = async () => {
+    const loadInitialData = async () => {
       try {
-        const response = await fetch('http://localhost:8001/symbols/external/popular?limit=20');
-        if (response.ok) {
-          const symbols: string[] = await response.json();
-          const popularSuggestions = symbols.map(symbol => ({
-            symbol,
-            name: ''
-          }));
-          setSearchCache(prev => new Map(prev).set('', popularSuggestions));
+        // Загружаем популярные акции
+        const popularSymbols = await getPopularSymbols();
+        const popularSuggestions = popularSymbols.map(symbol => ({
+          symbol: symbol.symbol,
+          name: symbol.name || ''
+        }));
+        setSearchCache(prev => new Map(prev).set('', popularSuggestions));
+        
+        // Загружаем разрешенные крипто-символы
+        try {
+          const allowedCrypto = await getAllowedCryptoSymbols();
+          setCryptoSymbols(allowedCrypto);
+        } catch (error) {
+          console.warn('Failed to load crypto symbols:', error);
+          // Fallback к основным крипто-символам
+          setCryptoSymbols(['BTC', 'ETH', 'SOL', 'BNB', 'ADA', 'XRP', 'DOGE', 'AVAX', 'MATIC']);
         }
       } catch (error) {
-        console.error('Error loading popular symbols:', error);
+        console.error('Failed to load initial data:', error);
       }
     };
     
-    loadPopularSymbols();
+    loadInitialData();
   }, []);
 
   // Функция поиска символов с кэшированием и умной сортировкой
-  const searchSymbols = useCallback(async (query: string) => {
+  const searchSymbolsDebounced = useCallback(async (query: string) => {
     console.log('🔍 searchSymbols called with:', query);
     
-    if (query.length < 2) {
+    if (query.length < 1) {
       console.log('❌ Query too short, clearing suggestions');
       setSuggestions([]);
+      return;
+    }
+    
+    // Для крипто-символов используем локальный поиск
+    if (assetClassValue === 'CRYPTO') {
+      const filteredCrypto = cryptoSymbols.filter(symbol => 
+        symbol.toUpperCase().includes(query.toUpperCase())
+      );
+      const cryptoSuggestions = filteredCrypto.map(symbol => ({
+        symbol,
+        name: `${symbol} (Crypto)`
+      }));
+      setSuggestions(cryptoSuggestions);
       return;
     }
 
@@ -185,9 +211,9 @@ export const AddPositionForm: React.FC<AddPositionFormProps> = ({
       console.log('⏰ Timeout executed:', { symbolValue, length: symbolValue.length });
       
       // Если поле не пустое, ищем символы
-      if (symbolValue.length >= 2) {
+      if (symbolValue.length >= 1) {
         console.log('🔎 Starting search for:', symbolValue);
-        searchSymbols(symbolValue);
+        searchSymbolsDebounced(symbolValue);
       } else if (symbolValue.length === 0) {
         // Если поле очищено, скрываем dropdown
         console.log('🧹 Clearing suggestions - empty field');
@@ -197,16 +223,16 @@ export const AddPositionForm: React.FC<AddPositionFormProps> = ({
     }, 500);
 
     return () => clearTimeout(timeoutId);
-  }, [symbolValue, searchSymbols]);
+  }, [symbolValue, searchSymbolsDebounced]);
 
   // Автоматически показывать dropdown когда suggestions загружены
   useEffect(() => {
     console.log('👁️ Auto-show dropdown check:', { suggestionsLength: suggestions.length, symbolLength: symbolValue.length, showSuggestions });
     
-    if (suggestions.length > 0 && symbolValue.length >= 2) {
+    if (suggestions.length > 0 && symbolValue.length >= 1) {
       console.log('👁️ Showing dropdown - suggestions available');
       setShowSuggestions(true);
-    } else if (symbolValue.length < 2) {
+    } else if (symbolValue.length < 1) {
       console.log('👁️ Hiding dropdown - symbol too short');
       setShowSuggestions(false);
     }
@@ -217,7 +243,8 @@ export const AddPositionForm: React.FC<AddPositionFormProps> = ({
     try {
       await onSubmit({
         symbol: data.symbol.toUpperCase().trim(),
-        quantity: parseFloat(data.quantity)
+        quantity: parseFloat(data.quantity),
+        asset_class: data.asset_class
       });
       reset();
       setShowSuggestions(false);
@@ -283,6 +310,24 @@ export const AddPositionForm: React.FC<AddPositionFormProps> = ({
       <h3 className="text-lg font-semibold text-white mb-6">Add New Position</h3>
       
       <form onSubmit={handleSubmit(onFormSubmit)} className="flex flex-wrap gap-6">
+        {/* Asset Class Selector */}
+        <div className="w-full">
+          <label htmlFor="asset_class" className="block text-sm text-slate-400 mb-1">
+            Asset Class
+          </label>
+          <select
+            {...register('asset_class')}
+            id="asset_class"
+            className="w-full px-4 py-3 bg-slate-700/50 border border-slate-600/50 rounded-lg text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/50 backdrop-blur-sm transition-all duration-200"
+          >
+            <option value="EQUITY">📈 Equity (Stocks)</option>
+            <option value="CRYPTO">₿ Crypto</option>
+          </select>
+          <p className="mt-1 text-xs text-slate-500/70">
+            Choose the type of asset you want to add
+          </p>
+        </div>
+
         {/* Symbol Input with Autocomplete */}
         <div className="flex-1 min-w-[150px]">
           <label htmlFor="symbol" className="block text-sm text-slate-400 mb-1">
@@ -293,7 +338,7 @@ export const AddPositionForm: React.FC<AddPositionFormProps> = ({
               {...register('symbol')}
               type="text"
               id="symbol"
-              placeholder="e.g. AAPL, MSFT"
+              placeholder={assetClassValue === 'CRYPTO' ? "e.g. BTC, ETH, SOL" : "e.g. AAPL, MSFT"}
               className={`w-full px-4 py-3 bg-slate-700/50 border rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 backdrop-blur-sm transition-all duration-200 ${
                 errors.symbol ? 'border-red-500' : 'border-slate-600/50'
               }`}
@@ -308,7 +353,10 @@ export const AddPositionForm: React.FC<AddPositionFormProps> = ({
           
           {/* Helper text */}
           <p className="mt-1 text-xs text-slate-500/70">
-            Enter stock ticker (e.g. AAPL, MSFT, TSLA)
+            {assetClassValue === 'CRYPTO' 
+              ? "Enter crypto symbol (e.g. BTC, ETH, SOL)" 
+              : "Enter stock ticker (e.g. AAPL, MSFT, TSLA)"
+            }
           </p>
           
           {/* Error message */}

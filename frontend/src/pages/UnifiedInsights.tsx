@@ -6,6 +6,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useAuthStore } from '../store/auth';
+import { useSettingsStore } from '../store/settings';
 import { 
   optimizedInsightsAPI 
 } from '../lib/api-insights-optimized';
@@ -15,11 +16,11 @@ import {
 } from '../types/insightsV2';
 
 // === Конфигурация ===
-const DEFAULT_REQUEST: InsightsV2Request = {
+const getDefaultRequest = (insightsModel: string): InsightsV2Request => ({
   horizon_months: 6,
   risk_profile: 'Balanced',
-  model: 'llama3.1:8b'
-};
+  model: insightsModel
+});
 
 // === Состояние компонента ===
 interface UnifiedInsightsState {
@@ -46,6 +47,7 @@ interface UnifiedInsightsState {
 
 export default function UnifiedInsights() {
   const { user_id } = useAuthStore();
+  const { settings } = useSettingsStore();
   
   const [state, setState] = useState<UnifiedInsightsState>({
     insightsData: null,
@@ -73,8 +75,9 @@ export default function UnifiedInsights() {
     const requestStartTime = performance.now();
 
     try {
+      const request = getDefaultRequest(settings.insightsAiModel);
       const response = await optimizedInsightsAPI.getOptimizedInsights(
-        DEFAULT_REQUEST,
+        request,
         user_id,
         true // использовать клиентский кэш
       );
@@ -86,7 +89,7 @@ export default function UnifiedInsights() {
         insightsData: response,
         cached: true,
         cacheKey: `cache-${Date.now()}`,
-        modelVersion: DEFAULT_REQUEST.model,
+        modelVersion: request.model,
         lastUpdated: new Date(),
         computeMs: 50,
         llmMs: 0,
@@ -123,7 +126,7 @@ export default function UnifiedInsights() {
 
     try {
       // Создаем запрос с форсированным обновлением
-      const llmRequest = { ...DEFAULT_REQUEST };
+      const llmRequest = { ...getDefaultRequest(settings.insightsAiModel) };
       
       const response = await optimizedInsightsAPI.getOptimizedInsights(
         llmRequest,

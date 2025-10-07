@@ -3,14 +3,16 @@ from sqlalchemy.orm import Session
 from sqlalchemy import select, and_
 from sqlalchemy.dialects.postgresql import insert
 from app.database import get_db
-from app.models.position import Position
+from app.models.position import Position, AssetClass
 from app.schemas import PositionCreate, PositionUpdate, PositionOut, BulkPositionResult, SellPositionRequest
 from app.services.auto_price_loader import load_price_for_symbol, load_prices_for_symbols
 from app.services.price_eod import PriceEODRepository
 from app.models.price_eod import PriceEOD
+from app.pricing.crypto.service import get_crypto_price_service
+from app.core.config import settings
 from uuid import UUID
 from decimal import Decimal
-from typing import List
+from typing import List, Optional
 from datetime import datetime
 import logging
 
@@ -22,8 +24,28 @@ router = APIRouter(prefix="/positions", tags=["positions"])
 TEST_USER_ID = UUID("00000000-0000-0000-0000-000000000001")
 
 
+async def get_crypto_price_for_position(symbol: str) -> tuple[Optional[Decimal], Optional[datetime]]:
+    """Get crypto price for position symbol"""
+    if not settings.feature_crypto_positions:
+        return None, None
+    
+    try:
+        crypto_service = get_crypto_price_service()
+        crypto_price = await crypto_service.get_price(symbol)
+        
+        if crypto_price:
+            return crypto_price.price_usd, crypto_price.timestamp
+        else:
+            logger.warning(f"Failed to get crypto price for {symbol}")
+            return None, None
+            
+    except Exception as e:
+        logger.error(f"Error getting crypto price for {symbol}: {e}")
+        return None, None
+
+
 @router.get("", response_model=List[PositionOut])
-def get_positions(
+async def get_positions(
     request: Request,
     db: Session = Depends(get_db)
 ):
@@ -57,37 +79,57 @@ def get_positions(
             "date_added": pos.date_added,
             "currency": pos.currency,
             "account": pos.account,
+            "asset_class": pos.asset_class,
         }
         
-        # Получаем последнюю цену за день (пробуем разные варианты символа)
+        # Получаем последнюю цену в зависимости от типа актива
         latest_price = None
-        symbols_to_try = [
-            pos.symbol,
-            pos.symbol.upper(),
-            pos.symbol.lower(),
-            pos.symbol.replace('.US', '.us'),
-            pos.symbol.replace('.us', '.US'),
-            pos.symbol.replace('.US', ''),
-            pos.symbol.replace('.us', '')
-        ]
+        latest_date = None
         
-        for symbol_variant in symbols_to_try:
-            latest_price = price_repo.get_latest_price(symbol_variant)
-            if latest_price:
-                break
+        if pos.asset_class == AssetClass.CRYPTO:
+            # Для крипто используем crypto price service
+            crypto_price, crypto_timestamp = await get_crypto_price_for_position(pos.symbol)
+            if crypto_price:
+                latest_price = crypto_price
+                latest_date = crypto_timestamp.date() if crypto_timestamp else None
+        else:
+            # Для акций используем EOD цены (пробуем разные варианты символа)
+            symbols_to_try = [
+                pos.symbol,
+                pos.symbol.upper(),
+                pos.symbol.lower(),
+                pos.symbol.replace('.US', '.us'),
+                pos.symbol.replace('.us', '.US'),
+                pos.symbol.replace('.US', ''),
+                pos.symbol.replace('.us', '')
+            ]
+            
+            for symbol_variant in symbols_to_try:
+                latest_price_eod = price_repo.get_latest_price(symbol_variant)
+                if latest_price_eod:
+                    latest_price = latest_price_eod.close
+                    latest_date = latest_price_eod.date
+                    break
         
         if latest_price:
-            position_dict["last_price"] = latest_price.close
-            position_dict["last_date"] = latest_price.date
-            
-            # Если нет buy_price, получаем цену на дату добавления позиции
-            if not pos.buy_price and pos.date_added:
-                from datetime import date
-                added_date = pos.date_added.date()
-                price_on_added_date = price_repo.get_price_on_date(pos.symbol, added_date)
+            position_dict["last_price"] = latest_price
+            position_dict["last_date"] = latest_date
+
+        # Если нет buy_price, получаем цену на дату добавления позиции как reference_price
+        if not pos.buy_price and pos.date_added:
+            from datetime import date
+            added_date = pos.date_added.date()
+
+            # Пробуем разные варианты символа для reference_price
+            price_on_added_date = None
+            for symbol_variant in symbols_to_try:
+                price_on_added_date = price_repo.get_price_on_date(symbol_variant, added_date)
                 if price_on_added_date:
-                    position_dict["reference_price"] = price_on_added_date.close
-                    position_dict["reference_date"] = added_date
+                    break
+
+            if price_on_added_date:
+                position_dict["reference_price"] = price_on_added_date.close
+                position_dict["reference_date"] = added_date
         
         result.append(position_dict)
     
@@ -95,7 +137,7 @@ def get_positions(
 
 
 @router.post("", response_model=PositionOut)
-def create_position(
+async def create_position(
     position_data: PositionCreate,
     request: Request,
     db: Session = Depends(get_db)
@@ -123,13 +165,28 @@ def create_position(
             db.commit()
             return {"message": f"USD balance updated by {position_data.quantity}"}
         
-        # Проверяем существующую позицию по (user_id, symbol, account)
+        # Валидация для крипто-позиций
+        asset_class = position_data.asset_class or AssetClass.EQUITY
+        if asset_class == AssetClass.CRYPTO:
+            if not settings.feature_crypto_positions:
+                raise HTTPException(status_code=403, detail="Crypto positions feature is disabled")
+            
+            # Проверяем, что символ в whitelist
+            crypto_service = get_crypto_price_service()
+            if not crypto_service._is_symbol_allowed(symbol):
+                raise HTTPException(
+                    status_code=422, 
+                    detail=f"Crypto symbol {symbol} is not allowed. Allowed symbols: {', '.join(sorted(crypto_service._allowed_symbols))}"
+                )
+        
+        # Проверяем существующую позицию по (user_id, symbol, account, asset_class)
         existing = db.execute(
             select(Position).where(
                 and_(
                     Position.user_id == user_id,
                     Position.symbol == symbol,
-                    Position.account == position_data.account
+                    Position.account == position_data.account,
+                    Position.asset_class == asset_class
                 )
             )
         ).scalar_one_or_none()
@@ -166,20 +223,24 @@ def create_position(
                 buy_date=position_data.buy_date,
                 date_added=datetime.utcnow(),
                 currency=position_data.currency or "USD",
-                account=position_data.account
+                account=position_data.account,
+                asset_class=asset_class
             )
             
             db.add(position)
             db.commit()
             db.refresh(position)
             
-            # Автоматически загружаем цену для нового символа
-            try:
-                load_price_for_symbol(symbol, db)
-                logger.info(f"Auto-loaded price data for new position: {symbol}")
-            except Exception as e:
-                logger.warning(f"Failed to auto-load price for {symbol}: {e}")
-                # Не прерываем создание позиции из-за ошибки загрузки цены
+            # Автоматически загружаем цену для нового символа (только для акций)
+            if asset_class == AssetClass.EQUITY:
+                try:
+                    load_price_for_symbol(symbol, db)
+                    logger.info(f"Auto-loaded price data for new equity position: {symbol}")
+                except Exception as e:
+                    logger.warning(f"Failed to auto-load price for {symbol}: {e}")
+                    # Не прерываем создание позиции из-за ошибки загрузки цены
+            elif asset_class == AssetClass.CRYPTO:
+                logger.info(f"Created new crypto position: {symbol} (prices will be fetched on-demand)")
             
             return position
     except Exception as e:

@@ -190,3 +190,5 @@ def compute_strategy_derived_fields(strategy: Strategy, current_portfolio_value:
     return result
 
 
+
+

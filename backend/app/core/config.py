@@ -38,6 +38,33 @@ class Settings(BaseSettings):
     # Admin token for EOD endpoints
     admin_token: str | None = Field(default=None, alias="ADMIN_TOKEN")
 
+    # News Aggregation Feature Flags
+    news_enable: bool = Field(default=False, alias="NEWS_ENABLE")
+    news_timeout: int = Field(default=10, alias="NEWS_TIMEOUT")
+    news_cache_ttl: int = Field(default=300, alias="NEWS_CACHE_TTL")  # 5 minutes default
+
+    # News Provider API Keys
+    finnhub_api_key: str | None = Field(default=None, alias="FINNHUB_API_KEY")
+    alphavantage_api_key: str | None = Field(default=None, alias="ALPHAVANTAGE_API_KEY")
+    newsapi_api_key: str | None = Field(default=None, alias="NEWSAPI_API_KEY")
+
+    # Crypto Positions Feature Flags
+    feature_crypto_positions: bool = Field(default=False, alias="FEATURE_CRYPTO_POSITIONS")
+    crypto_price_ttl_seconds: int = Field(default=60, alias="CRYPTO_PRICE_TTL_SECONDS")
+    crypto_price_primary: str = Field(default="binance", alias="CRYPTO_PRICE_PRIMARY")
+    crypto_allowed_symbols: str = Field(default="BTC,ETH,SOL,BNB,ADA,XRP,DOGE,AVAX,MATIC", alias="CRYPTO_ALLOWED_SYMBOLS")
+    
+    # AI Model Defaults
+    default_insights_model: str = Field(default="llama3.1:8b", alias="DEFAULT_INSIGHTS_MODEL")
+    default_insights_provider: str = Field(default="ollama", alias="DEFAULT_INSIGHTS_PROVIDER")
+    default_news_model: str = Field(default="llama3.1:8b", alias="DEFAULT_NEWS_MODEL")
+    default_news_provider: str = Field(default="ollama", alias="DEFAULT_NEWS_PROVIDER")
+    
+    # News Cache Settings
+    news_cache_enabled: bool = Field(default=True, alias="NEWS_CACHE_ENABLED")
+    news_cache_ttl_seconds: int = Field(default=300, alias="NEWS_CACHE_TTL_SECONDS")  # 5 minutes
+    news_cache_max_articles: int = Field(default=100, alias="NEWS_CACHE_MAX_ARTICLES")
+
     @property
     def database_url(self) -> str:
         """Get database URL from environment or construct from individual components"""

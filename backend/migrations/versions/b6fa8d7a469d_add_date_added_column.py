@@ -26,3 +26,5 @@ def upgrade() -> None:
 def downgrade() -> None:
     # Remove date_added column from positions table
     op.drop_column('positions', 'date_added')
+
+

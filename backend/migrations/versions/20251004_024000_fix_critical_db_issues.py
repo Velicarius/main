@@ -57,3 +57,5 @@ def downgrade():
         postgresql_using='id::text',
         existing_nullable=False
     )
+
+

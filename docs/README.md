@@ -24,3 +24,5 @@
 - Изменения в структуре → `.cursorrules`
 - Новые паттерны → `COMMON_TASKS.md`
 - Архитектурные решения → `ARCHITECTURE_DECISIONS.md`
+
+
