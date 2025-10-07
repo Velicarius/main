@@ -41,7 +41,7 @@ services:
       - ../.env
     environment:
       SEED_DEMO: "${SEED_DEMO:-0}"   # сидер по умолчанию отключён
-      DATABASE_URL: "postgresql://postgres:postgres@postgres:5432/${POSTGRES_DB:-postgres}"
+      DATABASE_URL: "postgresql://postgres:postgres@postgres:5432/postgres"
       OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
       ADMIN_TOKEN: "${ADMIN_TOKEN:-admin123}"
       # Конфигурация Ollama для подключения из Docker контейнера
@@ -50,6 +50,11 @@ services:
       REDIS_HOST: "redis"
       REDIS_PORT: "6379"
       REDIS_DB: "0"
+      # Crypto Positions Feature Flags
+      FEATURE_CRYPTO_POSITIONS: "${FEATURE_CRYPTO_POSITIONS:-true}"
+      CRYPTO_PRICE_TTL_SECONDS: "${CRYPTO_PRICE_TTL_SECONDS:-60}"
+      CRYPTO_PRICE_PRIMARY: "${CRYPTO_PRICE_PRIMARY:-binance}"
+      CRYPTO_ALLOWED_SYMBOLS: "${CRYPTO_ALLOWED_SYMBOLS:-BTC,ETH,SOL,BNB,ADA,XRP,DOGE,AVAX,MATIC}"
       # OPTIONAL:
       # OPENAI_BASE_URL: "https://api.openai.com/v1"
       # OPENAI_MODEL: "gpt-4o-mini"
@@ -76,6 +81,52 @@ services:
       - "8080:80"
     depends_on:
       - api
+
+  celery-worker:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    container_name: infra-celery-worker-1
+    command: celery -A app.celery_app worker --loglevel=info
+    env_file:
+      - ../.env
+    environment:
+      DATABASE_URL: "postgresql://postgres:postgres@postgres:5432/postgres"
+      REDIS_HOST: "redis"
+      REDIS_PORT: "6379"
+      EOD_ENABLE: "true"
+      EOD_SOURCE: "stooq"
+      EOD_SCHEDULE_CRON: "30 23 * * *"  # 23:30 daily
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  celery-beat:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    container_name: infra-celery-beat-1
+    command: celery -A app.celery_app beat --loglevel=info
+    env_file:
+      - ../.env
+    environment:
+      DATABASE_URL: "postgresql://postgres:postgres@postgres:5432/postgres"
+      REDIS_HOST: "redis"
+      REDIS_PORT: "6379"
+      EOD_ENABLE: "true"
+      EOD_SOURCE: "stooq"
+      EOD_SCHEDULE_CRON: "30 23 * * *"  # 23:30 daily
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
 
 
 volumes:
