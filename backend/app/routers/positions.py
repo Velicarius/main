@@ -10,6 +10,7 @@ from app.services.price_eod import PriceEODRepository
 from app.models.price_eod import PriceEOD
 from app.pricing.crypto.service import get_crypto_price_service
 from app.core.config import settings
+from app.core.auth_middleware import get_current_user, CurrentUser
 from uuid import UUID
 from decimal import Decimal
 from typing import List, Optional
@@ -22,6 +23,14 @@ router = APIRouter(prefix="/positions", tags=["positions"])
 
 # Константа для тестового пользователя
 TEST_USER_ID = UUID("00000000-0000-0000-0000-000000000001")
+
+
+def get_user_id_from_request_or_jwt(
+    request: Request,
+    current_user: CurrentUser = Depends(get_current_user)
+) -> UUID:
+    """Get user ID from JWT token (required)"""
+    return current_user.user_id
 
 
 async def get_crypto_price_for_position(symbol: str) -> tuple[Optional[Decimal], Optional[datetime]]:
@@ -46,20 +55,10 @@ async def get_crypto_price_for_position(symbol: str) -> tuple[Optional[Decimal],
 
 @router.get("", response_model=List[PositionOut])
 async def get_positions(
-    request: Request,
+    user_id: UUID = Depends(get_user_id_from_request_or_jwt),
     db: Session = Depends(get_db)
 ):
-    """Получить все позиции пользователя с последними ценами"""
-    uid = request.session.get("user_id")
-    if not uid:
-        # Временная заглушка для тестирования - используем первого пользователя
-        from app.models.user import User
-        first_user = db.execute(select(User).limit(1)).scalar_one_or_none()
-        if not first_user:
-            return []
-        user_id = first_user.id
-    else:
-        user_id = UUID(uid)
+    """Получить все позиции пользователя с последними ценами (requires JWT authentication)"""
     positions = db.execute(
         select(Position).where(Position.user_id == user_id)
     ).scalars().all()
@@ -139,15 +138,10 @@ async def get_positions(
 @router.post("", response_model=PositionOut)
 async def create_position(
     position_data: PositionCreate,
-    request: Request,
+    user_id: UUID = Depends(get_user_id_from_request_or_jwt),
     db: Session = Depends(get_db)
 ):
-    """Создать новую позицию или добавить к существующей"""
-    uid = request.session.get("user_id")
-    if not uid:
-        raise HTTPException(status_code=401, detail="Login required")
-    
-    user_id = UUID(uid)
+    """Создать новую позицию или добавить к существующей (requires JWT authentication)"""
     try:
         # Специальная обработка для USD - используем баланс вместо позиции
         symbol = position_data.symbol.upper().strip()
@@ -251,15 +245,10 @@ async def create_position(
 @router.post("/bulk_json", response_model=BulkPositionResult)
 def bulk_create_positions(
     positions: List[PositionCreate],
-    request: Request,
+    user_id: UUID = Depends(get_user_id_from_request_or_jwt),
     db: Session = Depends(get_db)
 ):
-    """Создать или обновить множество позиций за раз"""
-    uid = request.session.get("user_id")
-    if not uid:
-        raise HTTPException(status_code=401, detail="Login required")
-    
-    user_id = UUID(uid)
+    """Создать или обновить множество позиций за раз (requires JWT authentication)"""
     inserted = 0
     updated = 0
     failed = 0
@@ -354,15 +343,10 @@ def bulk_create_positions(
 def update_position(
     position_id: UUID,
     position_data: PositionUpdate,
-    request: Request,
+    user_id: UUID = Depends(get_user_id_from_request_or_jwt),
     db: Session = Depends(get_db)
 ):
-    """Частично обновить позицию"""
-    uid = request.session.get("user_id")
-    if not uid:
-        raise HTTPException(status_code=401, detail="Login required")
-    
-    user_id = UUID(uid)
+    """Частично обновить позицию (requires JWT authentication and user isolation)"""
     position = db.execute(
         select(Position).where(
             and_(
@@ -393,15 +377,10 @@ def update_position(
 @router.post("/sell", response_model=PositionOut)
 def sell_position(
     sell_data: SellPositionRequest,
-    request: Request,
+    user_id: UUID = Depends(get_user_id_from_request_or_jwt),
     db: Session = Depends(get_db)
 ):
-    """Продать часть позиции за USD"""
-    uid = request.session.get("user_id")
-    if not uid:
-        raise HTTPException(status_code=401, detail="Login required")
-    
-    user_id = UUID(uid)
+    """Продать часть позиции за USD (requires JWT authentication and user isolation)"""
     try:
         # Находим позицию для продажи
         position = db.execute(
@@ -454,15 +433,10 @@ def sell_position(
 @router.delete("/{position_id}")
 def delete_position(
     position_id: UUID,
-    request: Request,
+    user_id: UUID = Depends(get_user_id_from_request_or_jwt),
     db: Session = Depends(get_db)
 ):
-    """Удалить позицию"""
-    uid = request.session.get("user_id")
-    if not uid:
-        raise HTTPException(status_code=401, detail="Login required")
-    
-    user_id = UUID(uid)
+    """Удалить позицию (requires JWT authentication and user isolation)"""
     position = db.execute(
         select(Position).where(
             and_(
@@ -490,15 +464,10 @@ def add_position_legacy(
     symbol: str,
     quantity: float,
     price: float,
-    request: Request,
+    user_id: UUID = Depends(get_user_id_from_request_or_jwt),
     db: Session = Depends(get_db)
 ):
-    """Legacy endpoint для создания позиции (совместимость)"""
-    uid = request.session.get("user_id")
-    if not uid:
-        raise HTTPException(status_code=401, detail="Login required")
-    
-    user_id = UUID(uid)
+    """Legacy endpoint для создания позиции (requires JWT authentication)"""
     try:
         position = Position(
             user_id=user_id,

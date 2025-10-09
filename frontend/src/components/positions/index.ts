@@ -18,3 +18,5 @@ export type { EditPositionModalProps } from './EditPositionModal';
 
 export { SellPositionModal } from './SellPositionModal';
 export type { SellPositionModalProps } from './SellPositionModal';
+
+export { LocalTotals } from './LocalTotals';

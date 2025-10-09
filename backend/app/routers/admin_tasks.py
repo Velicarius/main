@@ -4,6 +4,7 @@ from pydantic import BaseModel
 
 from app.celery_app import celery_app
 from app.tasks.fetch_eod import fetch_eod_for_symbols
+from app.dependencies import require_admin
 
 router = APIRouter(prefix="/admin/tasks", tags=["admin-tasks"])
 
@@ -38,7 +39,7 @@ class TaskResponse(BaseModel):
         }
 
 
-@router.post("/fetch-eod", response_model=TaskResponse)
+@router.post("/fetch-eod", response_model=TaskResponse, dependencies=[Depends(require_admin)])
 async def trigger_fetch_eod(request: FetchEODRequest):
     """
     Manually trigger EOD data fetching task.
@@ -77,7 +78,7 @@ async def trigger_fetch_eod(request: FetchEODRequest):
         )
 
 
-@router.get("/fetch-eod/{task_id}", response_model=dict)
+@router.get("/fetch-eod/{task_id}", response_model=dict, dependencies=[Depends(require_admin)])
 async def get_task_status(task_id: str):
     """
     Get the status of a Celery task.

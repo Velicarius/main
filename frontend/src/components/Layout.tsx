@@ -10,12 +10,16 @@ const navItems = [
   { path: '/insights', label: 'Insights' },
   { path: '/news', label: 'News' },
   { path: '/settings', label: 'Settings' },
+  { path: '/admin', label: 'Admin', adminOnly: true },
 ];
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
-  const { email, loggedIn, logout } = useAuthStore();
+  const { email, loggedIn, logout, isAdmin } = useAuthStore();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  // Filter nav items based on user role
+  const filteredNavItems = navItems.filter(item => !item.adminOnly || isAdmin());
 
 
   const handleLogout = async () => {
@@ -40,7 +44,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       <MobileNav
         isOpen={isMobileMenuOpen}
         onClose={() => setIsMobileMenuOpen(false)}
-        navItems={navItems}
+        navItems={filteredNavItems}
       />
 
       {/* Top Navigation */}
@@ -71,7 +75,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             {/* Navigation Links */}
             <div className="hidden md:block">
               <div className="ml-10 flex items-center space-x-1">
-                {navItems.map((item) => (
+                {filteredNavItems.map((item) => (
                   <Link
                     key={item.path}
                     to={item.path}

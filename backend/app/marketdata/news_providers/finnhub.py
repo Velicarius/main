@@ -76,6 +76,97 @@ class FinnhubProvider(BaseNewsProvider):
         # Return up to limit
         return all_articles[:limit]
 
+    async def fetch_news_conditional(
+        self,
+        query: str,
+        published_after: Optional[datetime] = None,
+        etag: Optional[str] = None,
+        limit: int = 20
+    ) -> Dict[str, Any]:
+        """
+        Fetch news with conditional request support (ETag/If-Modified-Since).
+        
+        Args:
+            query: Search query string (treated as ticker for Finnhub)
+            published_after: Only fetch articles published after this date
+            etag: ETag for conditional request
+            limit: Maximum number of results
+            
+        Returns:
+            Dict with 'status', 'items', 'etag' keys
+            - status: 'ok', 'not_modified', or 'error'
+            - items: List of articles (empty if not_modified)
+            - etag: ETag from response (for caching)
+        """
+        if not self.is_enabled():
+            logger.warning("Finnhub provider disabled (no API key)")
+            return {"status": "error", "items": [], "etag": None, "error": "Provider disabled"}
+        
+        # Finnhub requires at least one ticker (use query as ticker)
+        if not query:
+            logger.warning("Finnhub requires a ticker symbol")
+            return {"status": "error", "items": [], "etag": None, "error": "No ticker provided"}
+        
+        # Format dates as YYYY-MM-DD
+        from_str = published_after.strftime("%Y-%m-%d") if published_after else (datetime.now().replace(day=1).strftime("%Y-%m-%d"))
+        to_str = datetime.now().strftime("%Y-%m-%d")
+        
+        # Build headers for conditional request
+        headers = {}
+        if etag:
+            headers["If-None-Match"] = etag
+        if published_after:
+            # Format as RFC1123 for If-Modified-Since
+            headers["If-Modified-Since"] = published_after.strftime("%a, %d %b %Y %H:%M:%S GMT")
+        
+        all_articles = []
+        response_etag = None
+        
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.get(
+                    f"{self.BASE_URL}/company-news",
+                    params={
+                        "symbol": query.upper(),  # Use query as ticker
+                        "from": from_str,
+                        "to": to_str,
+                        "token": self.api_key
+                    },
+                    headers=headers
+                )
+                
+                # Handle 304 Not Modified
+                if response.status_code == 304:
+                    return {
+                        "status": "not_modified",
+                        "items": [],
+                        "etag": etag
+                    }
+                
+                response.raise_for_status()
+                articles = response.json()
+                response_etag = response.headers.get("ETag")
+                
+                # Finnhub returns array of articles
+                if isinstance(articles, list):
+                    all_articles.extend(articles[:limit])
+                
+                return {
+                    "status": "ok",
+                    "items": all_articles,
+                    "etag": response_etag
+                }
+                
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 429:
+                # Rate limit - let retry decorator handle it
+                raise
+            logger.error(f"Finnhub HTTP error: {e.response.status_code}")
+            return {"status": "error", "items": [], "etag": None, "error": f"HTTP {e.response.status_code}"}
+        except Exception as e:
+            logger.error(f"Finnhub fetch error: {e}")
+            return {"status": "error", "items": [], "etag": None, "error": str(e)}
+
     def normalize(self, raw_article: Dict[str, Any]) -> Dict[str, Any]:
         """
         Normalize Finnhub article to NormalizedNews schema

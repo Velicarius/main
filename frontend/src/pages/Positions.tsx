@@ -1,12 +1,12 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { getPositions, addPosition, getBalance, getCashLedger, CashLedgerMetric, AddPositionRequest, Position } from '../lib/api';
 import { useAuthStore } from '../store/auth';
 import { AddPositionForm } from '../components/common/AddPositionForm';
 import { PortfolioDisplay } from '../components/common/PortfolioDisplay';
-import { PositionsTable, PositionsSummaryStats, EditPositionModal, SellPositionModal } from '../components/positions';
+import { PositionsTable, PositionsSummaryStats, EditPositionModal, SellPositionModal, LocalTotals } from '../components/positions';
 import { usePositionsTable } from '../hooks/usePositionsTable';
 import { usePositionActions } from '../hooks/usePositionActions';
-import { Spinner, Alert } from '../components/ui';
+import { Spinner, Alert, SegmentedControl } from '../components/ui';
 
 export default function Positions() {
   const { loggedIn } = useAuthStore();
@@ -16,6 +16,17 @@ export default function Positions() {
   const [error, setError] = useState<string | null>(null);
   const [expandedPositionId, setExpandedPositionId] = useState<string | null>(null);
   const [isAddingPosition, setIsAddingPosition] = useState(false);
+  
+  // Asset class tab state with localStorage persistence
+  const [activeAssetClass, setActiveAssetClass] = useState<'EQUITY' | 'CRYPTO'>(() => {
+    const saved = localStorage.getItem('positions-active-asset-class');
+    return (saved as 'EQUITY' | 'CRYPTO') || 'EQUITY';
+  });
+  
+  // Update localStorage when tab changes
+  useEffect(() => {
+    localStorage.setItem('positions-active-asset-class', activeAssetClass);
+  }, [activeAssetClass]);
 
   // Fetch positions data
   const fetchPositions = async () => {
@@ -78,8 +89,13 @@ export default function Positions() {
     }
   }, [loggedIn]);
 
-  // Use custom hooks for table sorting and actions
-  const { sortField, sortDirection, sortedPositions, handleSort } = usePositionsTable(positions);
+  // Filter positions by active asset class
+  const filteredPositions = useMemo(() => {
+    return positions.filter(position => position.asset_class === activeAssetClass);
+  }, [positions, activeAssetClass]);
+
+  // Use custom hooks for table sorting and actions with filtered positions
+  const { sortField, sortDirection, sortedPositions, handleSort } = usePositionsTable(filteredPositions);
 
   const {
     editingPosition,
@@ -97,7 +113,7 @@ export default function Positions() {
     handleDelete
   } = usePositionActions({ onSuccess: fetchPositions });
 
-  // Add position handler
+  // Add position handler - use active tab's asset class
   const handleAddPosition = async (data: { symbol: string; quantity: number; asset_class?: 'EQUITY' | 'CRYPTO' }) => {
     try {
       setIsAddingPosition(true);
@@ -105,7 +121,7 @@ export default function Positions() {
       const newPosition: AddPositionRequest = {
         symbol: data.symbol.toUpperCase(),
         quantity: data.quantity,
-        asset_class: data.asset_class || 'EQUITY',
+        asset_class: data.asset_class || activeAssetClass, // Use active tab's asset class
       };
 
       await addPosition(newPosition);
@@ -163,9 +179,29 @@ export default function Positions() {
         <Alert type="error" message={error} />
       )}
 
-      {/* Summary Stats */}
+      {/* Asset Class Tabs */}
+      <div className="flex items-center justify-between">
+        <SegmentedControl
+          options={[
+            { value: 'EQUITY', label: 'Stocks', icon: '📈' },
+            { value: 'CRYPTO', label: 'Crypto', icon: '₿' }
+          ]}
+          value={activeAssetClass}
+          onChange={(value) => setActiveAssetClass(value as 'EQUITY' | 'CRYPTO')}
+        />
+        <div className="text-sm text-slate-400">
+          {filteredPositions.length} {filteredPositions.length === 1 ? 'position' : 'positions'}
+        </div>
+      </div>
+
+      {/* Local Totals for Current Asset Class */}
       {positions.length > 0 && (
-        <PositionsSummaryStats positions={sortedPositions} />
+        <LocalTotals positions={positions} assetClass={activeAssetClass} />
+      )}
+
+      {/* Summary Stats - Global Portfolio (unchanged) */}
+      {positions.length > 0 && (
+        <PositionsSummaryStats positions={positions} />
       )}
 
       {/* Positions Table */}

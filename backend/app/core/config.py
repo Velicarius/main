@@ -11,11 +11,15 @@ class Settings(BaseSettings):
     app_env: str = Field(default="dev", alias="APP_ENV")
     secret_key: str = Field(default="dev-secret", alias="SECRET_KEY")
 
+    # JWT Authentication - REQUIRED in production
+    jwt_secret_key: str | None = Field(default=None, alias="JWT_SECRET_KEY")
+    session_secret: str | None = Field(default=None, alias="SESSION_SECRET")
+
     # Database settings
     database_url_env: str | None = Field(default=None, alias="DATABASE_URL")
     postgres_host: str = Field(default="localhost", alias="POSTGRES_HOST")
     postgres_port: int = Field(default=5432, alias="POSTGRES_PORT")
-    postgres_db: str = Field(default="ai_portfolio", alias="POSTGRES_DB")
+    postgres_db: str = Field(default="postgres", alias="POSTGRES_DB")
     postgres_user: str = Field(default="postgres", alias="POSTGRES_USER")
     postgres_password: str = Field(default="postgres", alias="POSTGRES_PASSWORD")
 
@@ -64,6 +68,29 @@ class Settings(BaseSettings):
     news_cache_enabled: bool = Field(default=True, alias="NEWS_CACHE_ENABLED")
     news_cache_ttl_seconds: int = Field(default=300, alias="NEWS_CACHE_TTL_SECONDS")  # 5 minutes
     news_cache_max_articles: int = Field(default=100, alias="NEWS_CACHE_MAX_ARTICLES")
+    
+    # News Feature Flags for LLM Compatibility
+    news_read_cache_enabled: bool = Field(default=True, alias="NEWS_READ_CACHE_ENABLED")
+    news_provider_fetch_enabled: bool = Field(default=False, alias="NEWS_PROVIDER_FETCH_ENABLED")
+    news_provider_shadow_mode: bool = Field(default=True, alias="NEWS_PROVIDER_SHADOW_MODE")
+    news_llm_source_version: str = Field(default="v1", alias="NEWS_LLM_SOURCE_VERSION")
+    
+    # Shadow Mode Providers (comma-separated list)
+    news_shadow_providers: str = Field(default="", alias="NEWS_SHADOW_PROVIDERS")
+    
+    # News Planner Configuration
+    news_daily_limit: int = Field(default=80, alias="NEWS_DAILY_LIMIT")
+    news_daily_symbols: int = Field(default=20, alias="NEWS_DAILY_SYMBOLS")
+    news_provider_default: str = Field(default="newsapi", alias="NEWS_PROVIDER_DEFAULT")
+    news_planner_run_hour_local: int = Field(default=6, alias="NEWS_PLANNER_RUN_HOUR_LOCAL")
+    news_planner_run_minute_local: int = Field(default=30, alias="NEWS_PLANNER_RUN_MINUTE_LOCAL")
+
+    @property
+    def shadow_providers_list(self) -> list[str]:
+        """Get list of shadow providers from comma-separated string."""
+        if not self.news_shadow_providers:
+            return []
+        return [provider.strip().lower() for provider in self.news_shadow_providers.split(",") if provider.strip()]
 
     @property
     def database_url(self) -> str:
@@ -105,8 +132,32 @@ class Settings(BaseSettings):
         print(f"Postgres DB: {self.postgres_db}")
         print(f"Postgres User: {self.postgres_user}")
 
+    def validate_production_secrets(self) -> None:
+        """Validate that required secrets are set in production"""
+        if self.app_env in ("production", "prod"):
+            errors = []
+
+            # Check JWT secret
+            if not self.jwt_secret_key or self.jwt_secret_key == "dev-secret":
+                errors.append("JWT_SECRET_KEY must be set to a secure random value in production")
+
+            # Check session secret
+            if not self.session_secret or self.session_secret in ("dev-secret-change-me", "dev-secret"):
+                errors.append("SESSION_SECRET must be set to a secure random value in production")
+
+            # Check main secret key
+            if self.secret_key in ("dev-secret", "dev-secret-change-me"):
+                errors.append("SECRET_KEY must be set to a secure random value in production")
+
+            if errors:
+                error_msg = "Production security validation failed:\n" + "\n".join(f"  - {e}" for e in errors)
+                raise ValueError(error_msg)
+
     class Config:
         env_file = ".env"
         extra = "ignore"
 
 settings = Settings()
+# Validate secrets on startup
+if settings.app_env in ("production", "prod"):
+    settings.validate_production_secrets()

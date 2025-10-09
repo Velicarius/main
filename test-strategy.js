@@ -30,3 +30,4 @@ console.log('Strategy:', testStrategy);
 
 // Перезагружаем страницу для применения изменений
 window.location.reload();
+

@@ -135,3 +135,4 @@ curl -X POST "http://localhost:8000/ai/insights/fixed?user_id=YOUR_USER_ID" \
 
 
 
+

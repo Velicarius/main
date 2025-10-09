@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useAuthStore } from '../store/auth';
-import { loginJson, registerJson } from '../lib/api';
+import { registerJson } from '../lib/api';
+import { authService } from '../services/authService';
 
 export default function Auth() {
   const { setAuth } = useAuthStore();
@@ -27,11 +28,31 @@ export default function Auth() {
     try {
       setIsLoginLoading(true);
       setAuthError(null);
-      const data = await loginJson(emailInput.trim(), passwordInput);
-      setAuth(data.email, data.name, data.user_id);
+
+      // Use JWT login
+      const jwtResponse = await authService.loginJWT(emailInput.trim(), passwordInput);
+
+      // Verify token to get roles
+      const tokenInfo = await authService.verifyJWTToken(jwtResponse.access_token);
+
+      // Store in auth store with token and roles
+      setAuth(
+        jwtResponse.email,
+        jwtResponse.email.split('@')[0], // Use email prefix as name
+        jwtResponse.user_id,
+        tokenInfo.roles || [],
+        jwtResponse.access_token
+      );
+
       setEmailInput('');
       setPasswordInput('');
-      window.location.reload();
+
+      // Redirect based on role
+      if (tokenInfo.roles?.includes('admin')) {
+        window.location.href = '/admin';
+      } else {
+        window.location.href = '/dashboard';
+      }
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : 'Login failed');
     } finally {

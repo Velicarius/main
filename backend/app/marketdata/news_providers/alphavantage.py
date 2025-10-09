@@ -82,6 +82,100 @@ class AlphaVantageProvider(BaseNewsProvider):
             logger.error(f"Alpha Vantage fetch error: {e}")
             return []
 
+    async def fetch_news_conditional(
+        self,
+        query: str,
+        published_after: Optional[datetime] = None,
+        etag: Optional[str] = None,
+        limit: int = 20
+    ) -> Dict[str, Any]:
+        """
+        Fetch news with conditional request support (ETag/If-Modified-Since).
+        
+        Args:
+            query: Search query string (treated as ticker for Alpha Vantage)
+            published_after: Only fetch articles published after this date
+            etag: ETag for conditional request
+            limit: Maximum number of results
+            
+        Returns:
+            Dict with 'status', 'items', 'etag' keys
+            - status: 'ok', 'not_modified', or 'error'
+            - items: List of articles (empty if not_modified)
+            - etag: ETag from response (for caching)
+        """
+        if not self.is_enabled():
+            logger.warning("Alpha Vantage provider disabled (no API key)")
+            return {"status": "error", "items": [], "etag": None, "error": "Provider disabled"}
+        
+        # Build ticker string (use query as ticker)
+        ticker_str = query.upper() if query else ""
+        
+        params = {
+            "function": "NEWS_SENTIMENT",
+            "apikey": self.api_key,
+            "limit": min(limit, 1000)  # Alpha Vantage max is 1000
+        }
+        
+        if ticker_str:
+            params["tickers"] = ticker_str
+        
+        # Alpha Vantage supports time_from/time_to in YYYYMMDDTHHMM format
+        if published_after:
+            params["time_from"] = published_after.strftime("%Y%m%dT%H%M")
+        
+        # Build headers for conditional request
+        headers = {}
+        if etag:
+            headers["If-None-Match"] = etag
+        if published_after:
+            # Format as RFC1123 for If-Modified-Since
+            headers["If-Modified-Since"] = published_after.strftime("%a, %d %b %Y %H:%M:%S GMT")
+        
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.get(self.BASE_URL, params=params, headers=headers)
+                
+                # Handle 304 Not Modified
+                if response.status_code == 304:
+                    return {
+                        "status": "not_modified",
+                        "items": [],
+                        "etag": etag
+                    }
+                
+                response.raise_for_status()
+                data = response.json()
+                response_etag = response.headers.get("ETag")
+                
+                # Check for API errors
+                if "Error Message" in data:
+                    logger.error(f"Alpha Vantage API error: {data['Error Message']}")
+                    return {"status": "error", "items": [], "etag": None, "error": data['Error Message']}
+                
+                if "Note" in data:
+                    logger.warning(f"Alpha Vantage rate limit: {data['Note']}")
+                    return {"status": "error", "items": [], "etag": None, "error": "Rate limit exceeded"}
+                
+                # Extract feed array
+                feed = data.get("feed", [])
+                
+                return {
+                    "status": "ok",
+                    "items": feed[:limit],
+                    "etag": response_etag
+                }
+                
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 429:
+                # Rate limit - let retry decorator handle it
+                raise
+            logger.error(f"Alpha Vantage HTTP error: {e.response.status_code}")
+            return {"status": "error", "items": [], "etag": None, "error": f"HTTP {e.response.status_code}"}
+        except Exception as e:
+            logger.error(f"Alpha Vantage fetch error: {e}")
+            return {"status": "error", "items": [], "etag": None, "error": str(e)}
+
     def normalize(self, raw_article: Dict[str, Any]) -> Dict[str, Any]:
         """
         Normalize Alpha Vantage article to NormalizedNews schema

@@ -26,3 +26,4 @@
 - Архитектурные решения → `ARCHITECTURE_DECISIONS.md`
 
 
+

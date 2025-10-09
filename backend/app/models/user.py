@@ -16,3 +16,9 @@ class User(Base):
 
     positions = relationship("Position", back_populates="user", cascade="all, delete-orphan")
     strategy = relationship("Strategy", back_populates="user", uselist=False, cascade="all, delete-orphan")
+    user_roles = relationship("UserRole", foreign_keys="[UserRole.user_id]", back_populates="user", cascade="all, delete-orphan")
+
+    @property
+    def roles(self) -> list[str]:
+        """Get list of role names for this user"""
+        return [ur.role.name for ur in self.user_roles if ur.role]

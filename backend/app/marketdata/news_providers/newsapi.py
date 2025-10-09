@@ -30,7 +30,8 @@ class NewsAPIProvider(BaseNewsProvider):
         limit: int = 20
     ) -> List[Dict[str, Any]]:
         """
-        Fetch news from NewsAPI
+        Fetch news from NewsAPI (legacy method for backward compatibility).
+        Use fetch_news_conditional() for conditional request support.
 
         API endpoint: /everything?q={query}&from={from}&to={to}&pageSize={limit}
         """
@@ -84,6 +85,96 @@ class NewsAPIProvider(BaseNewsProvider):
         except Exception as e:
             logger.error(f"NewsAPI fetch error: {e}")
             return []
+
+    async def fetch_news_conditional(
+        self,
+        query: str,
+        published_after: Optional[datetime] = None,
+        etag: Optional[str] = None,
+        limit: int = 20
+    ) -> Dict[str, Any]:
+        """
+        Fetch news with conditional request support (ETag/If-Modified-Since).
+        
+        Args:
+            query: Search query string
+            published_after: Only fetch articles published after this date
+            etag: ETag for conditional request
+            limit: Maximum number of results
+            
+        Returns:
+            Dict with 'status', 'items', 'etag' keys
+            - status: 'ok', 'not_modified', or 'error'
+            - items: List of articles (empty if not_modified)
+            - etag: ETag from response (for caching)
+        """
+        if not self.is_enabled():
+            logger.warning("NewsAPI provider disabled (no API key)")
+            return {"status": "error", "items": [], "etag": None, "error": "Provider disabled"}
+        
+        # Format dates as YYYY-MM-DD
+        from_str = published_after.strftime("%Y-%m-%d") if published_after else None
+        
+        params = {
+            "q": query,
+            "apiKey": self.api_key,
+            "pageSize": min(limit, 100),  # NewsAPI max is 100
+            "language": "en",
+            "sortBy": "publishedAt"
+        }
+        
+        if from_str:
+            params["from"] = from_str
+        
+        # Build headers for conditional request
+        headers = {}
+        if etag:
+            headers["If-None-Match"] = etag
+        if published_after:
+            # Format as RFC1123 for If-Modified-Since
+            headers["If-Modified-Since"] = published_after.strftime("%a, %d %b %Y %H:%M:%S GMT")
+        
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.get(f"{self.BASE_URL}/everything", params=params, headers=headers)
+                
+                # Handle 304 Not Modified
+                if response.status_code == 304:
+                    return {
+                        "status": "not_modified",
+                        "items": [],
+                        "etag": etag
+                    }
+                
+                response.raise_for_status()
+                data = response.json()
+                
+                # Check status
+                if data.get("status") != "ok":
+                    error_code = data.get("code", "unknown")
+                    error_message = data.get("message", "Unknown error")
+                    logger.error(f"NewsAPI error [{error_code}]: {error_message}")
+                    return {"status": "error", "items": [], "etag": None, "error": error_message}
+                
+                # Extract articles and ETag
+                articles = data.get("articles", [])
+                response_etag = response.headers.get("ETag")
+                
+                return {
+                    "status": "ok",
+                    "items": articles[:limit],
+                    "etag": response_etag
+                }
+                
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 429:
+                # Rate limit - let retry decorator handle it
+                raise
+            logger.error(f"NewsAPI HTTP error: {e.response.status_code}")
+            return {"status": "error", "items": [], "etag": None, "error": f"HTTP {e.response.status_code}"}
+        except Exception as e:
+            logger.error(f"NewsAPI fetch error: {e}")
+            return {"status": "error", "items": [], "etag": None, "error": str(e)}
 
     def normalize(self, raw_article: Dict[str, Any]) -> Dict[str, Any]:
         """

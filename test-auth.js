@@ -16,3 +16,4 @@ console.log('Auth:', testAuth);
 
 // Перезагружаем страницу для применения изменений
 window.location.reload();
+

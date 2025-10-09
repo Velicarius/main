@@ -46,6 +46,50 @@ class BaseNewsProvider(ABC):
         """
         pass
 
+    async def fetch_news_conditional(
+        self,
+        query: str,
+        published_after: Optional[datetime] = None,
+        etag: Optional[str] = None,
+        limit: int = 20
+    ) -> Dict[str, Any]:
+        """
+        Fetch news with conditional request support (ETag/If-Modified-Since).
+        
+        Args:
+            query: Search query string
+            published_after: Only fetch articles published after this date
+            etag: ETag for conditional request
+            limit: Maximum number of results
+            
+        Returns:
+            Dict with 'status', 'items', 'etag' keys
+            - status: 'ok', 'not_modified', or 'error'
+            - items: List of articles (empty if not_modified)
+            - etag: ETag from response (for caching)
+        """
+        # Default implementation falls back to regular fetch_news
+        # Subclasses can override for conditional request support
+        try:
+            items = await self.fetch_news(
+                tickers=[query] if query else None,
+                from_date=published_after,
+                limit=limit
+            )
+            return {
+                "status": "ok",
+                "items": items,
+                "etag": None  # No ETag support by default
+            }
+        except Exception as e:
+            logger.error(f"Error in fetch_news_conditional: {e}")
+            return {
+                "status": "error",
+                "items": [],
+                "etag": None,
+                "error": str(e)
+            }
+
     @abstractmethod
     def normalize(self, raw_article: Dict[str, Any]) -> Dict[str, Any]:
         """

@@ -1,9 +1,9 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { StrategyParams } from '../../types/strategy';
-import { TimeRangeSelector, TimeRangeGranularity, TimeRangePeriod } from './TimeRangeSelector';
-import { TimelineChart, ChartDataPoint } from './TimelineChart';
-import { TimelineTooltip } from './TimelineTooltip';
-import { DateRangePicker } from './DateRangePicker';
+import { TimeRangeSelector, TimeRange } from './TimeRangeSelector';
+import { TimelineChart, TimelineDataPoint } from './TimelineChart';
+import { DateRangePicker, DateRange } from './DateRangePicker';
+// Using native Date methods instead of date-fns
 
 // Sacred Timeline component showing portfolio value over time
 export interface SacredTimelineProps {
@@ -22,48 +22,68 @@ export function SacredTimeline({
   loading = false
 }: SacredTimelineProps) {
 
-  const [granularity, setGranularity] = useState<TimeRangeGranularity>('daily');
-  const [period, setPeriod] = useState<TimeRangePeriod>('1D');
-  const [customStartDate, setCustomStartDate] = useState<string | null>(null);
-  const [customEndDate, setCustomEndDate] = useState<string | null>(null);
-
-  // Auto-switch granularity based on period for optimal viewing
-  const handlePeriodChange = useCallback((newPeriod: TimeRangePeriod) => {
-    setPeriod(newPeriod);
-
-    // Reset custom dates when switching away from CUSTOM
-    if (newPeriod !== 'CUSTOM') {
-      setCustomStartDate(null);
-      setCustomEndDate(null);
+  // State management with localStorage persistence
+  const [selectedTimeRange, setSelectedTimeRange] = useState<TimeRange>(() => {
+    const saved = localStorage.getItem('sacred-timeline-time-range');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch {
+        // Fallback to default
+      }
     }
+    return { label: '1M', days: 30, aggregation: 'weekly' };
+  });
 
-    // Auto-select granularity based on zoom level
-    // 1D, 1W → Daily view (show individual days/weeks)
-    // 1M, 3M → Daily view (still detailed enough)
-    // 6M, 1Y, ALL → Monthly view for better overview
-    if (['1D', '1W', '1M', '3M'].includes(newPeriod)) {
-      setGranularity('daily');
-    } else if (newPeriod === 'CUSTOM') {
-      // For custom range, default to daily
-      setGranularity('daily');
-    } else {
-      setGranularity('monthly');
+  const [selectedDateRange, setSelectedDateRange] = useState<DateRange>(() => {
+    const saved = localStorage.getItem('sacred-timeline-date-range');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        return {
+          start: new Date(parsed.start),
+          end: new Date(parsed.end),
+          label: parsed.label
+        };
+      } catch {
+        // Fallback to default
+      }
     }
+    const end = new Date();
+    const start = new Date();
+    start.setDate(end.getDate() - 29);
+    return {
+      start,
+      end,
+      label: 'Last 30 days'
+    };
+  });
+
+  const [useCustomRange, setUseCustomRange] = useState(false);
+
+  // Persist state to localStorage
+  useEffect(() => {
+    localStorage.setItem('sacred-timeline-time-range', JSON.stringify(selectedTimeRange));
+  }, [selectedTimeRange]);
+
+  useEffect(() => {
+    localStorage.setItem('sacred-timeline-date-range', JSON.stringify({
+      start: selectedDateRange.start.toISOString(),
+      end: selectedDateRange.end.toISOString(),
+      label: selectedDateRange.label
+    }));
+  }, [selectedDateRange]);
+
+  // Handle time range change (preset buttons)
+  const handleTimeRangeChange = useCallback((newRange: TimeRange) => {
+    setSelectedTimeRange(newRange);
+    setUseCustomRange(false);
   }, []);
 
-  // Handle custom date range application
-  const handleApplyCustomRange = useCallback((startDate: string, endDate: string) => {
-    setCustomStartDate(startDate);
-    setCustomEndDate(endDate);
-    setPeriod('CUSTOM');
-    setGranularity('daily');
-  }, []);
-
-  // Handle custom date range reset
-  const handleResetCustomRange = useCallback(() => {
-    setCustomStartDate(null);
-    setCustomEndDate(null);
-    setPeriod('ALL');
+  // Handle date range change (custom picker)
+  const handleDateRangeChange = useCallback((newRange: DateRange) => {
+    setSelectedDateRange(newRange);
+    setUseCustomRange(true);
   }, []);
 
   // Format currency based on currency type
@@ -79,38 +99,6 @@ export function SacredTimeline({
     }).format(value);
   }, [currency]);
 
-  // Format date for X-axis based on granularity and period
-  const formatXAxisDate = useCallback((dateStr: string) => {
-    const date = new Date(dateStr);
-
-    if (period === '1W') {
-      // For weekly view, show week range
-      const monday = new Date(date);
-      const dayOfWeek = date.getDay();
-      const diff = date.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
-      monday.setDate(diff);
-      
-      const sunday = new Date(monday);
-      sunday.setDate(monday.getDate() + 6);
-      
-      return `${monday.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${sunday.toLocaleDateString('en-US', { day: 'numeric' })}`;
-    } else if (granularity === 'daily') {
-      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    } else {
-      return date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
-    }
-  }, [granularity, period]);
-
-  // Format tooltip date
-  const formatTooltipDate = useCallback((dateStr: string) => {
-    const date = new Date(dateStr);
-    return date.toLocaleDateString('en-US', {
-      day: 'numeric',
-      month: 'short',
-      year: 'numeric',
-      weekday: 'short'
-    });
-  }, []);
 
   // Aggregate data by granularity and filter by period
   const aggregatedData = useMemo(() => {
@@ -142,14 +130,35 @@ export function SacredTimeline({
 
     if (uniqueSeries.length === 0) return [];
 
-    // Apply granularity aggregation
-    let processedData = uniqueSeries;
+    // Determine date range to filter
+    let startDate: Date;
+    let endDate: Date;
 
-    if (granularity === 'monthly') {
+    if (useCustomRange) {
+      startDate = selectedDateRange.start;
+      endDate = selectedDateRange.end;
+    } else {
+      // Use time range presets
+      const daysBack = selectedTimeRange.days;
+      startDate = new Date();
+      startDate.setDate(now.getDate() - daysBack);
+      endDate = now;
+    }
+
+    // Filter data by date range
+    const filteredData = uniqueSeries.filter(point => {
+      const pointDate = new Date(point.date);
+      return pointDate >= startDate && pointDate <= endDate;
+    });
+
+    // Apply aggregation based on time range
+    let processedData = filteredData;
+
+    if (selectedTimeRange.aggregation === 'monthly') {
       // Group by month and take last value of each month
       const monthlyMap = new Map<string, { date: string; value: number }>();
 
-      uniqueSeries.forEach(point => {
+      filteredData.forEach(point => {
         const date = new Date(point.date);
         const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
 
@@ -162,16 +171,16 @@ export function SacredTimeline({
       processedData = Array.from(monthlyMap.values()).sort(
         (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
       );
-    } else if (period === '1W') {
-      // For weekly view, group by week (Monday to Sunday)
+    } else if (selectedTimeRange.aggregation === 'weekly') {
+      // Group by week (Monday to Sunday)
       const weeklyMap = new Map<string, { date: string; value: number }>();
 
-      uniqueSeries.forEach(point => {
+      filteredData.forEach(point => {
         const date = new Date(point.date);
         // Get Monday of the week
         const monday = new Date(date);
         const dayOfWeek = date.getDay();
-        const diff = date.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1); // Adjust when day is Sunday
+        const diff = date.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
         monday.setDate(diff);
         
         const weekKey = `${monday.getFullYear()}-W${String(Math.ceil((monday.getDate() + 6) / 7)).padStart(2, '0')}`;
@@ -187,93 +196,21 @@ export function SacredTimeline({
       );
     }
 
-    // Apply period filter - SYMMETRIC (past + future from today)
-    if (period === 'ALL') {
-      return processedData.map(point => ({
-        date: point.date,
-        value: point.value
-      }));
-    }
-
-    if (period === 'CUSTOM' && customStartDate && customEndDate) {
-      const start = new Date(customStartDate);
-      const end = new Date(customEndDate);
-      return processedData
-        .filter(point => {
-          const pointDate = new Date(point.date);
-          return pointDate >= start && pointDate <= end;
-        })
-        .map(point => ({
-          date: point.date,
-          value: point.value
-        }));
-    }
-
-    // Symmetric zoom: show X units in past AND X units in future
-    let unitsInPastAndFuture: number;
-    let unitInDays: number;
-
-    switch (period) {
-      case '1D':
-        unitsInPastAndFuture = 10; // 10 days past, 10 days future
-        unitInDays = 1;
-        break;
-      case '1W':
-        unitsInPastAndFuture = 10; // 10 weeks past, 10 weeks future
-        unitInDays = 7;
-        break;
-      case '1M':
-        unitsInPastAndFuture = 10; // 10 months past, 10 months future
-        unitInDays = 30;
-        break;
-      case '3M':
-        unitsInPastAndFuture = 6; // 6 quarters past, 6 quarters future
-        unitInDays = 90;
-        break;
-      case '6M':
-        unitsInPastAndFuture = 4; // 4 half-years past, 4 half-years future
-        unitInDays = 180;
-        break;
-      case '1Y':
-        unitsInPastAndFuture = 3; // 3 years past, 3 years future
-        unitInDays = 365;
-        break;
-      default:
-        return processedData.map(point => ({
-          date: point.date,
-          value: point.value
-        }));
-    }
-
-    const rangeInMs = unitsInPastAndFuture * unitInDays * 24 * 60 * 60 * 1000;
-    const startDate = new Date(now.getTime() - rangeInMs);
-    const endDate = new Date(now.getTime() + rangeInMs);
-
-    return processedData
-      .filter(point => {
-        const pointDate = new Date(point.date);
-        return pointDate >= startDate && pointDate <= endDate;
-      })
-      .map(point => ({
-        date: point.date,
-        value: point.value
-      }));
-  }, [actualSeries, granularity, period, currentTotalValue, customStartDate, customEndDate]);
+    return processedData.map(point => ({
+      date: point.date,
+      value: point.value
+    }));
+  }, [actualSeries, selectedTimeRange, selectedDateRange, useCustomRange, currentTotalValue]);
 
   // Calculate target series for strategy goal
   const targetSeries = useMemo(() => {
-    console.log('SacredTimeline strategy:', strategy);
-    console.log('targetGoalValue:', strategy?.targetGoalValue);
-    console.log('targetDate:', strategy?.targetDate);
-    
     if (!strategy?.targetGoalValue || !strategy?.targetDate) {
-      console.log('No target data, returning empty series');
       return [];
     }
     
     // Target line starts TODAY with current value
     const today = new Date();
-    today.setHours(0, 0, 0, 0); // Reset time to start of day
+    today.setHours(0, 0, 0, 0);
     
     const endDate = new Date(strategy.targetDate);
     const startValue = currentTotalValue;
@@ -284,14 +221,14 @@ export function SacredTimeline({
       return [];
     }
     
-    // Adjust granularity based on period for target series
+    // Adjust granularity based on aggregation for target series
     let intervalDays: number;
-    if (period === '1W') {
-      intervalDays = 7; // Weekly intervals
-    } else if (period === '1D') {
-      intervalDays = 1; // Daily intervals
+    if (selectedTimeRange.aggregation === 'weekly') {
+      intervalDays = 7;
+    } else if (selectedTimeRange.aggregation === 'daily') {
+      intervalDays = 1;
     } else {
-      intervalDays = 30; // Monthly intervals for longer periods
+      intervalDays = 30; // Monthly intervals
     }
     
     const totalDays = Math.ceil((endDate.getTime() - today.getTime()) / (24 * 60 * 60 * 1000));
@@ -305,15 +242,20 @@ export function SacredTimeline({
         value: startValue + (growthPerInterval * i)
       };
     });
-  }, [strategy?.targetGoalValue, strategy?.targetDate, currentTotalValue, period]);
+  }, [strategy?.targetGoalValue, strategy?.targetDate, currentTotalValue, selectedTimeRange.aggregation]);
 
   // Combine actual and target data for chart
-  const chartData: ChartDataPoint[] = useMemo(() => {
-    const dataMap = new Map<string, ChartDataPoint>();
+  const chartData: TimelineDataPoint[] = useMemo(() => {
+    const dataMap = new Map<string, TimelineDataPoint>();
 
     // Add historical data
     aggregatedData.forEach(point => {
-      dataMap.set(point.date, { date: point.date, actual: point.value });
+      dataMap.set(point.date, { 
+        date: point.date, 
+        actual: point.value,
+        target: 0,
+        pnl: 0
+      });
     });
 
     // Filter target series to match the visible date range from aggregatedData
@@ -332,9 +274,22 @@ export function SacredTimeline({
           if (existing) {
             existing.target = point.value;
           } else {
-            dataMap.set(point.date, { date: point.date, actual: null, target: point.value });
+            dataMap.set(point.date, { 
+              date: point.date, 
+              actual: 0, 
+              target: point.value,
+              pnl: 0
+            });
           }
         });
+    }
+
+    // Calculate P&L for each point
+    const firstPoint = aggregatedData[0];
+    if (firstPoint) {
+      dataMap.forEach((point) => {
+        point.pnl = point.actual - firstPoint.value;
+      });
     }
 
     // Convert Map to array and sort by date
@@ -370,20 +325,7 @@ export function SacredTimeline({
     };
   }, [aggregatedData, currentTotalValue, strategy?.targetGoalValue]);
 
-  // Create tooltip component wrapper with bound formatting functions
-  const TooltipComponent = useCallback((props: any) => {
-    const firstPoint = aggregatedData.length > 0 ? aggregatedData[0] : null;
-    return (
-      <TimelineTooltip
-        {...props}
-        formatCurrency={formatCurrency}
-        formatDate={formatTooltipDate}
-        firstPointValue={firstPoint?.value}
-        targetValue={strategy?.targetGoalValue}
-        currentTotalValue={currentTotalValue}
-      />
-    );
-  }, [formatCurrency, formatTooltipDate, aggregatedData, strategy?.targetGoalValue, currentTotalValue]);
+  // Tooltip component is now handled by TimelineChart
 
   // Loading state
   if (loading) {
@@ -437,20 +379,18 @@ export function SacredTimeline({
 
         {/* Time range controls */}
         <TimeRangeSelector
-          granularity={granularity}
-          period={period}
-          onGranularityChange={setGranularity}
-          onPeriodChange={handlePeriodChange}
+          value={selectedTimeRange}
+          onChange={handleTimeRangeChange}
         />
 
         {/* Chart */}
         <TimelineChart
-          data={noHistoryData.map(p => ({ date: p.date, actual: p.value }))}
-          granularity={granularity}
-          formatCurrency={formatCurrency}
-          formatXAxisDate={formatXAxisDate}
-          tooltipContent={TooltipComponent}
-          showTarget={false}
+          data={noHistoryData.map(p => ({ 
+            date: p.date, 
+            actual: p.value,
+            target: 0,
+            pnl: 0
+          }))}
         />
 
         <div className="mt-4 text-center text-slate-400 text-sm">
@@ -462,32 +402,29 @@ export function SacredTimeline({
 
   // Main render with history
   return (
-    <div className="bg-slate-800/50 backdrop-blur-xl rounded-xl p-6 border border-slate-700/50 shadow-lg">
+    <div className="bg-slate-800/50 backdrop-blur-xl rounded-xl p-6 border border-slate-700/50 shadow-lg" data-testid="sacred-timeline">
       {/* Header */}
       <div className="mb-4">
         <h3 className="text-lg font-semibold text-white">Sacred Timeline</h3>
         <span className="text-sm text-slate-400">Portfolio Value Over Time</span>
       </div>
 
-      {/* Time range controls */}
-      <TimeRangeSelector
-        granularity={granularity}
-        period={period}
-        onGranularityChange={setGranularity}
-        onPeriodChange={handlePeriodChange}
-      />
+      {/* Controls */}
+      <div className="flex items-center justify-between mb-6">
+        <TimeRangeSelector
+          value={selectedTimeRange}
+          onChange={handleTimeRangeChange}
+        />
+        <DateRangePicker
+          value={selectedDateRange}
+          onChange={handleDateRangeChange}
+        />
+      </div>
 
-      {/* Custom Date Range Picker */}
-      <DateRangePicker
-        isActive={period === 'CUSTOM'}
-        onApply={handleApplyCustomRange}
-        onReset={handleResetCustomRange}
-      />
-
-      {/* Period Metrics */}
+      {/* Summary Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
         {/* Portfolio Size */}
-        <div className="bg-slate-700/30 rounded-lg p-4 border border-slate-600/30">
+        <div className="bg-slate-700/30 rounded-lg p-4 border border-slate-600/30" data-testid="sacred-summary-size">
           <div className="text-xs text-slate-400 mb-1">Portfolio Size</div>
           <div className="text-xl font-bold text-white">
             {formatCurrency(periodMetrics.portfolioSize)}
@@ -495,7 +432,7 @@ export function SacredTimeline({
         </div>
 
         {/* Period P&L */}
-        <div className="bg-slate-700/30 rounded-lg p-4 border border-slate-600/30">
+        <div className="bg-slate-700/30 rounded-lg p-4 border border-slate-600/30" data-testid="sacred-summary-pnl">
           <div className="text-xs text-slate-400 mb-1">Period P&L</div>
           <div className={`text-xl font-bold ${periodMetrics.periodPnL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
             {periodMetrics.periodPnL >= 0 ? '+' : ''}{formatCurrency(periodMetrics.periodPnL)}
@@ -503,10 +440,11 @@ export function SacredTimeline({
           <div className={`text-xs ${periodMetrics.periodPnLPercent >= 0 ? 'text-green-400' : 'text-red-400'}`}>
             {periodMetrics.periodPnLPercent >= 0 ? '+' : ''}{periodMetrics.periodPnLPercent.toFixed(2)}%
           </div>
+          <div className="text-xs text-slate-500 mt-1">for selected window</div>
         </div>
 
         {/* Target Value */}
-        <div className="bg-slate-700/30 rounded-lg p-4 border border-slate-600/30">
+        <div className="bg-slate-700/30 rounded-lg p-4 border border-slate-600/30" data-testid="sacred-summary-target">
           <div className="text-xs text-slate-400 mb-1">Target Value</div>
           <div className="text-xl font-bold text-blue-400">
             {periodMetrics.targetValue > 0 ? formatCurrency(periodMetrics.targetValue) : '—'}
@@ -514,7 +452,7 @@ export function SacredTimeline({
         </div>
 
         {/* Delta to Target */}
-        <div className="bg-slate-700/30 rounded-lg p-4 border border-slate-600/30">
+        <div className="bg-slate-700/30 rounded-lg p-4 border border-slate-600/30" data-testid="sacred-summary-delta">
           <div className="text-xs text-slate-400 mb-1">Delta to Target</div>
           <div className={`text-xl font-bold ${periodMetrics.deltaToTarget <= 0 ? 'text-green-400' : 'text-amber-400'}`}>
             {periodMetrics.targetValue > 0 ? (
@@ -528,13 +466,8 @@ export function SacredTimeline({
 
       {/* Chart */}
       <TimelineChart
-        key={`${period}-${granularity}`}
         data={chartData}
-        granularity={granularity}
-        formatCurrency={formatCurrency}
-        formatXAxisDate={formatXAxisDate}
-        tooltipContent={TooltipComponent}
-        showTarget={true}
+        targetValue={strategy?.targetGoalValue}
       />
     </div>
   );

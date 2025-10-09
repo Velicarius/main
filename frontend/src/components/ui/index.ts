@@ -22,3 +22,5 @@ export type { DropdownProps, DropdownItem } from './Dropdown';
 export { Modal } from './Modal';
 
 export { BalanceModal } from './BalanceModal';
+
+export { SegmentedControl } from './SegmentedControl';

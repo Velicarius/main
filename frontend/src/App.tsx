@@ -9,6 +9,7 @@ import Insights from './pages/Insights';
 import UnifiedInsights from './pages/UnifiedInsights';
 import News from './pages/News';
 import Settings from './pages/Settings';
+import Admin from './pages/Admin';
 
 // Protected Route component
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -63,6 +64,11 @@ function App() {
               <Route path="/settings" element={
                 <ProtectedRoute>
                   <Settings />
+                </ProtectedRoute>
+              } />
+              <Route path="/admin" element={
+                <ProtectedRoute>
+                  <Admin />
                 </ProtectedRoute>
               } />
               {/* Redirect any unknown routes to dashboard */}
